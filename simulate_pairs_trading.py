@@ -24,7 +24,7 @@ initial_cash = 100000
 
 skip_start = 0
 duration = 0 # Duration in days to run the sim. If 0, no duration. Max for my file is 237 (won't error if higher though)
-eval_freq = 1 # How often to evaluate performance, in days
+eval_freq = 30 # How often to evaluate performance, in days
 
 # Slippage calculation - https://www.barchart.com/stocks/quotes/V
 volatility = 0.15
@@ -49,26 +49,61 @@ visa_price_col_name_t0 = f"visa_{eval_time}"
 mastercard_price_col_name_t0 = f"mastercard_{eval_time}"
 visa_price_col_name_t1 = f"visa_{trade_time}"
 mastercard_price_col_name_t1 = f"mastercard_{trade_time}"
+performance_chart: pd.DataFrame = pd.DataFrame(columns=["day", "visa_shares", "visa_price", "mastercard_shares", "mastercard_price", "cash", "total_value"])
 
 ### Functions
 
-def evaluate_performance(visa_price, mastercard_price, init_visa_price, init_mastercard_price) -> Tuple[float, float, float]:
-    global visa_shares
-    global mastercard_shares
-    global cash
+def add_daily_performance(day, visa_price, visa_shares, mastercard_price, mastercard_shares, cash):
+    global performance_chart
 
-    # Calculate how well the stocks did on their own, compared to how my algo performed
-    # Average the growth of each stock
-    visa_growth = visa_price / init_visa_price
-    mastercard_growth = mastercard_price / init_mastercard_price
-    average_growth = (visa_growth + mastercard_growth) / 2
+    # Add the current day's performance to the performance chart
+    total_value = cash + visa_shares * visa_price + mastercard_shares * mastercard_price
+    performance_chart = performance_chart._append({
+        "day": day,
+        "visa_shares": visa_shares,
+        "visa_price": visa_price,
+        "mastercard_shares": mastercard_shares,
+        "mastercard_price": mastercard_price,
+        "cash": cash,
+        "total_value": total_value
+    }, ignore_index=True)
 
-    # Algorithm growth
-    algo_growth = (cash + visa_shares * visa_price + mastercard_shares * mastercard_price) / initial_cash
+def log_daily_performance(day: int, freq: int = 1):
+    # Log the performance both all time and from the last [freq] days
+    # Compare the performance with the market
 
-    # Normalized algorithm growth
-    normalized_algo_growth = algo_growth / average_growth
-    return (algo_growth, average_growth, normalized_algo_growth)
+    # Make sure the day > freq
+    if day < freq:
+        raise Exception("Day must be greater than or equal to the frequency")
+
+    # Get algo performance numbers
+    current_value = performance_chart[performance_chart["day"] == day]["total_value"].values[0]
+    init_value = performance_chart[performance_chart["day"] == 0]["total_value"].values[0]
+    last_freq_value = performance_chart[performance_chart["day"] == day - freq]["total_value"].values[0]
+    algo_growth_all_time = current_value / init_value
+    algo_growth_last_freq = current_value / last_freq_value
+    
+    # Get market performance numbers
+    current_stock_prices = performance_chart[performance_chart["day"] == day]["visa_price"].values[0] + performance_chart[performance_chart["day"] == day]["mastercard_price"].values[0]
+    init_stock_prices = performance_chart[performance_chart["day"] == 0]["visa_price"].values[0] + performance_chart[performance_chart["day"] == 0]["mastercard_price"].values[0]
+    last_freq_stock_prices = performance_chart[performance_chart["day"] == day - freq]["visa_price"].values[0] + performance_chart[performance_chart["day"] == day - freq]["mastercard_price"].values[0]
+    market_growth_all_time = current_stock_prices / init_stock_prices
+    market_growth_last_freq = current_stock_prices / last_freq_stock_prices
+
+    algo_perf_all_time = algo_growth_all_time / market_growth_all_time
+    algo_perf_last_freq = algo_growth_last_freq / market_growth_last_freq
+
+    # Print a table of the values, with the columns: day, last {freq}d, all time; and rows: market, algo, performance
+    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
+    print(f"|{'Day ' + str(day):<10}|{'Last ' + str(freq) + 'd':<10}|{'All time':<10}|")
+    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
+    print(f"|{'Market':<10}|{str(round(market_growth_last_freq * 100, 1))+'%':<10}|{str(round(market_growth_all_time * 100, 1))+'%':<10}|")
+    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
+    print(f"|{'Algo':<10}|{str(round(algo_growth_last_freq * 100, 1))+'%':<10}|{str(round(algo_growth_all_time * 100, 1))+'%':<10}|")
+    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
+    print(f"|{'Perf':<10}|{str(round(algo_perf_last_freq * 100, 1))+'%':<10}|{str(round(algo_perf_all_time * 100, 1))+'%':<10}|")
+    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
+    print("\n\n\n")
 
 # Calculate the market impact of a trade
 def calculate_market_impact(volume) -> float:
@@ -140,38 +175,43 @@ stocks_df['ratio'] = stocks_df[visa_price_col_name_t0] / stocks_df[mastercard_pr
 ### Main
 
 # Go through each row, comparing the timestamps (in format "YYYY-MM-DD HH:MM:SS"). If they don't match, print the row, then move on to the next row in whichever dataframe has the earlier timestamp
-i = moving_average_window # Start at the moving average window to calculate the moving average
-print("Starting algorithm...\n")
-trigger_count = 0
-attempted_trigger_count = 0
+trade_swap_count = 0
+attempted_trade_swap_count = 0
 trades_left_today = trades_per_day_limit
-last_day = stocks_df['timestamp'][i].split(" ")[0]
-daily_limit_reached_counter = 0
+previous_day = stocks_df['timestamp'][moving_average_window].split(" ")[0]
+trade_limit_reached_counter = 0
 days_passed = 0
-init_run = True
+days_processed = 0
+init_run = True # Is this the first processed run of the algorithm?
+print("Starting algorithm...\n")
 for i in range(moving_average_window, len(stocks_df) - trade_delay):
-    if duration != 0 and days_passed >= duration + skip_start:
-        visa_price = stocks_df[visa_price_col_name_t1][i]
-        mastercard_price = stocks_df[mastercard_price_col_name_t1][i]
-        break
     # Check if new day and reset trades left based on the timestamp
     current_day = stocks_df['timestamp'][i].split(" ")[0]
-    if current_day != last_day:
-        last_day = current_day
+    if current_day != previous_day:
+        previous_day = current_day
         trades_left_today = trades_per_day_limit
-        days_passed += 1
+        days_passed += 1 # Add that the previous day has passed
+        if days_passed > skip_start:
+            days_processed += 1 # Add that the previous day was processed
+            add_daily_performance(days_processed, visa_price, visa_shares, mastercard_price, mastercard_shares, cash)
         if trades_left_today == 0:
             print(f"Daily limit reset\n")
-        if (days_passed - skip_start) % eval_freq == 0 and days_passed > skip_start:
-            (algo_growth, average_growth, normalized_algo_growth) = evaluate_performance(visa_price, mastercard_price, init_visa_price, init_mastercard_price)
-            print(f"Day {days_passed - skip_start} eval:\n\t{round(average_growth * 100, 1)}% market growth\n\t{round(algo_growth * 100, 1)}% algo growth value\n\t{round(normalized_algo_growth * 100, 1)}% performance\n")
+        if days_processed > 0 and days_processed % eval_freq == 0:
+            log_daily_performance(days_processed, eval_freq)
     elif trades_per_day_limit != 0 and trades_left_today == 0:
         i += 1
         continue
 
+    # Skip the first [skip_start] days
     if days_passed < skip_start:
         i += 1
         continue
+
+    # Break the loop if the duration is reached
+    if duration != 0 and days_processed >= duration:
+        # visa_price = stocks_df[visa_price_col_name_t1][i]
+        # mastercard_price = stocks_df[mastercard_price_col_name_t1][i]
+        break
 
     # Variables
     visa_price = stocks_df[visa_price_col_name_t1][i + trade_delay]
@@ -187,6 +227,7 @@ for i in range(moving_average_window, len(stocks_df) - trade_delay):
         mastercard_bought_price = mastercard_price
         init_visa_price = visa_price
         init_mastercard_price = mastercard_price
+        add_daily_performance(days_processed, visa_price, visa_shares, mastercard_price, mastercard_shares, cash) # Add the first day's performance
         init_run = False
 
     # Calculate the moving average of the ratio for the last [moving_average_window] minutes
@@ -199,37 +240,40 @@ for i in range(moving_average_window, len(stocks_df) - trade_delay):
     limit_visa_sale_price = stocks_df[visa_price_col_name_t0][i] # Take price at eval time with no delay
     limit_mastercard_sale_price = stocks_df[mastercard_price_col_name_t0][i] # Take price at eval time with no delay
     if visa_shares > mastercard_shares and diff > trigger:
-        attempted_trigger_count += 1
+        attempted_trade_swap_count += 1
         if not limit_ordering or visa_price >= limit_visa_sale_price:
             (cash, visa_shares) = sell_stock(visa_shares, visa_price, Stock.VISA)
             (cash, mastercard_shares) = buy_stock(cash, mastercard_price, Stock.MASTERCARD)
             total_value = cash + visa_shares * visa_price + mastercard_shares * mastercard_price
             # print(f"Sold visa, bought mastercard at diff {diff} - time {time}")
             # print(f"[Visa: {visa_shares}, Mastercard: {mastercard_shares}, Value: {total_value}]\n")
-            trigger_count += 1
+            trade_swap_count += 1
             trades_left_today -= 1
             if trades_per_day_limit != 0 and trades_left_today == 0:
-                daily_limit_reached_counter += 1
+                trade_limit_reached_counter += 1
                 print(f"Reached daily trade limit, skipping the rest of the day")
     # If holding mastercard and the ratio is below the moving average, sell mastercard and buy visa
     elif mastercard_shares > visa_shares and diff < -trigger:
-        attempted_trigger_count += 1
+        attempted_trade_swap_count += 1
         if not limit_ordering or mastercard_price >= limit_mastercard_sale_price:
             (cash, mastercard_shares) = sell_stock(mastercard_shares, mastercard_price, Stock.MASTERCARD)
             (cash, visa_shares) = buy_stock(cash, visa_price, Stock.VISA)
             total_value = cash + visa_shares * visa_price + mastercard_shares * mastercard_price
             # print(f"Sold mastercard, bought visa at diff {diff} - time {time}")
             # print(f"[Visa: {visa_shares}, Mastercard: {mastercard_shares}, Value: {total_value}]\n")
-            trigger_count += 1
+            trade_swap_count += 1
             trades_left_today -= 1
             if trades_per_day_limit != 0 and trades_left_today == 0:
-                daily_limit_reached_counter += 1
+                trade_limit_reached_counter += 1
                 print(f"Reached daily trade limit, skipping the rest of the day")
+# Count the last day
+days_passed += 1
+if init_run == False:
+    days_processed += 1
+    add_daily_performance(days_processed, visa_price, visa_shares, mastercard_price, mastercard_shares, cash)
+    log_daily_performance(days_processed, eval_freq)
 
-(algo_growth, average_growth, normalized_algo_growth) = evaluate_performance(visa_price, mastercard_price, init_visa_price, init_mastercard_price)
-print(f"Day {days_passed - skip_start} eval:\n\t{round(average_growth * 100, 1)}% market growth\n\t{round(algo_growth * 100, 1)}% algo growth value\n\t{round(normalized_algo_growth * 100, 1)}% performance\n")
-
-print(f"Done simulating pairs trading! Triggered {trigger_count} total time out of {attempted_trigger_count} attempts.")
-print(f"Reached daily trade limit {daily_limit_reached_counter} times.")
+print(f"Done simulating pairs trading! Triggered {trade_swap_count} total time out of {attempted_trade_swap_count} attempts.")
+print(f"Reached daily trade limit {trade_limit_reached_counter} times.")
 print(f"Total gains: {total_gains}, total losses: {total_losses}")
 print(f"Days passed: {days_passed}")
