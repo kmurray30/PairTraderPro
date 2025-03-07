@@ -3,9 +3,27 @@ import os
 from polygon import RESTClient
 import time
 import Utilities
+import sys
 
 market_open = "09:30:00"
-market_close = "04:00:00"
+market_close = "16:00:00"
+
+# Capture command-line arguments
+args = sys.argv[1:]  # Exclude the script name
+if len(args) != 4:
+    raise Exception("Must provide exactly 2 tickers and 2 dates. e.g. `python download_histories.py AMD TSM 2020-02-13 2025-02-10`")
+
+tickers = args[0:2] # ["AMD", "TSM"]
+interval = "1_minute"
+init_start_date = args[2] # (pd.Timestamp.now() - pd.Timedelta(days=365*5)).strftime("%Y-%m-%d") # "2020-02-12"
+final_end_date = args[3] # (pd.Timestamp.now() - pd.Timedelta(days=1)).strftime("%Y-%m-%d") # "2025-02-09"
+days_at_a_time: int = 1 # Does not work for more than 1 day at a time for now
+max_retries = 5
+is_rate_limited = False
+rate_limit = 5 # Requests per minute
+exclude_outside_market_hours = False
+
+print(f"Downloading data for {tickers} from {init_start_date} to {final_end_date}")
 
 # Notes:
 # - The polygon API returns data for one day later for some reason
@@ -52,15 +70,6 @@ Utilities.init_dotenv()
 polygon_api_key = os.getenv("POLYGON_API_KEY")
 polygon_client = RESTClient(api_key=polygon_api_key)
 
-max_retries = 5
-
-ticker = "MA"
-interval = "1_minute"
-# days: int = 366
-init_start_date = "2023-01-01"
-final_end_date = "2023-12-31"
-days_at_a_time: int = 1 # Does not work for more than 1 day at a time for now
-
 # Calculate the number of days between the start and end date
 days = (pd.Timestamp(final_end_date) - pd.Timestamp(init_start_date)).days + 1
 
@@ -72,59 +81,60 @@ final_end_date = (pd.Timestamp(init_start_date) + pd.Timedelta(days=days-1)).str
 multiplier = interval.split("_")[0]
 timespan = interval.split("_")[1]
 
-file_path = Utilities.get_path_from_project_root(f"histories/{ticker}_{init_start_date}_to_{final_end_date}.csv")
+for ticker in tickers:
+    file_path = Utilities.get_path_from_project_root(f"histories/downloaded/{ticker}_{init_start_date}_to_{final_end_date}.csv")
 
-rate_limit = 5 # Requests per minute
-for i in range(0, int(days / days_at_a_time)):
-    start_date = pd.Timestamp(init_start_date) + pd.Timedelta(days = i * days_at_a_time)
-    # end_date = (start_date + pd.Timedelta(days=days_at_a_time))
+    for i in range(0, int(days / days_at_a_time)):
+        start_date = pd.Timestamp(init_start_date) + pd.Timedelta(days = i * days_at_a_time)
+        # end_date = (start_date + pd.Timedelta(days=days_at_a_time))
 
-    # If the day is a weekend, skip it
-    if start_date.dayofweek >= 5:
-        print(f"Skipping weekend day {start_date.strftime('%Y-%m-%d')}")
-        continue
+        # If the day is a weekend, skip it
+        if start_date.dayofweek >= 5:
+            print(f"Skipping weekend day {start_date.strftime('%Y-%m-%d')}")
+            continue
 
-    # TODO If the day is a stock market holiday, skip it
+        # TODO If the day is a stock market holiday, skip it
 
-    start_date_str = start_date.strftime("%Y-%m-%d")
-    # end_date_str = end_date.strftime("%Y-%m-%d")
-    print(f"Fetching data from date {start_date_str}")
-    # Retry n times if the request fails
-    for j in range(0, max_retries):
-        try:
-            result = polygon_client.list_aggs(ticker=ticker, multiplier=multiplier, timespan=timespan, from_=start_date_str, to=start_date_str, limit=5000, sort="asc")
-            priceData = pd.DataFrame(result)
-            break
-        except Exception as e:
-            print(f"Exception: {e}")
-            print("Sleeping for 1 minute and retrying")
+        start_date_str = start_date.strftime("%Y-%m-%d")
+        # end_date_str = end_date.strftime("%Y-%m-%d")
+        print(f"Fetching data from date {start_date_str}")
+        # Retry n times if the request fails
+        for j in range(0, max_retries):
+            try:
+                result = polygon_client.list_aggs(ticker=ticker, multiplier=multiplier, timespan=timespan, from_=start_date_str, to=start_date_str, limit=5000, sort="asc")
+                priceData = pd.DataFrame(result)
+                break
+            except Exception as e:
+                print(f"Exception: {e}")
+                print("Sleeping for 1 minute and retrying")
+                time.sleep(60)
+                rate_limit = 5
+        rate_limit -= 1
+
+        if len(priceData) == 0:
+            print(f"No data fetched for day {start_date_str}")
+            continue
+        else:
+            print(f"Fetched {len(priceData)} rows")
+
+        # Convert the timestamp column to a datetime string
+        priceData['timestamp'] = pd.to_datetime(priceData['timestamp'], unit='ms')
+
+        if exclude_outside_market_hours:
+            priceData = trim_to_market_hours(priceData, start_date_str)
+        print(f"Trimmed to {len(priceData)} market hour rows")
+
+        # Append the data to a running CSV file
+        if not os.path.isfile(file_path):
+            priceData.to_csv(file_path, index=False)
+        else:
+            priceData.to_csv(file_path, mode='a', index=False, header=False)
+
+        if is_rate_limited and rate_limit == 0:
+            # Sleep for 1 minute to avoid rate limiting
+            print("Sleeping for 1 minute to avoid rate limiting")
             time.sleep(60)
             rate_limit = 5
-    rate_limit -= 1
 
-    if len(priceData) == 0:
-        print(f"No data fetched for day {start_date_str}")
-        continue
-    else:
-        print(f"Fetched {len(priceData)} rows")
-
-    # Convert the timestamp column to a datetime string
-    priceData['timestamp'] = pd.to_datetime(priceData['timestamp'], unit='ms')
-
-    market_hours_data = trim_to_market_hours(priceData, start_date_str)
-    print(f"Trimmed to {len(market_hours_data)} market hour rows")
-
-    # Append the data to a running CSV file
-    if not os.path.isfile(file_path):
-        market_hours_data.to_csv(file_path, index=False)
-    else:
-        market_hours_data.to_csv(file_path, mode='a', index=False, header=False)
-
-    if rate_limit == 0:
-        # Sleep for 1 minute to avoid rate limiting
-        print("Sleeping for 1 minute to avoid rate limiting")
-        time.sleep(60)
-        rate_limit = 5
-
-print("Done!")
-print(f"Data saved to {file_path}")
+    print(f"Done with {ticker}")
+    print(f"Data saved to {file_path}")

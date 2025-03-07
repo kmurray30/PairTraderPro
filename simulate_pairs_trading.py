@@ -1,15 +1,5 @@
-import Utilities
-import pandas as pd
-import math
-from typing import Tuple
-from enum import Enum
 
 ### Constants
-
-# Define the stock enum
-class Stock(Enum):
-    VISA = 1
-    MASTERCARD = 2
 
 # Trading parameters
 trigger_percent = 0.5 # The difference that triggers a buy or sell (need to convert from percentage)
@@ -19,12 +9,12 @@ moving_average_window = 240 # In minutes
 trade_delay = 1 # In minutes
 eval_time = "close" # Use either "open", "close", or "mid" for the price
 trade_time = "close" # Use either "open", "close", or "mid" for the price
-limit_ordering = False
+is_limit_ordering = False
 initial_cash = 100000
 
 skip_start = 0
 duration = 0 # Duration in days to run the sim. If 0, no duration. Max for my file is 237 (won't error if higher though)
-eval_freq = 30 # How often to evaluate performance, in days
+eval_freq = 60 # How often to evaluate performance, in days
 
 # Slippage calculation - https://www.barchart.com/stocks/quotes/V
 volatility = 0.15
@@ -37,8 +27,28 @@ cash = initial_cash
 visa_shares = 0
 mastercard_shares = 0
 
+### Imports
+import Utilities
+import pandas as pd
+import math
+from typing import Tuple
+from enum import Enum
+import sys
+
+# Capture command-line arguments
+args = sys.argv[1:]  # Exclude the script name
+
+tickers = args # ["AMD", "TSM"]
+if len(tickers) != 2:
+    raise Exception("Must provide exactly 2 tickers. e.g. `python download_histories.py AMD TSM`")
+
 # File paths
-combined_file_path = Utilities.get_path_from_project_root("histories/visa_mastercard_clean_2024-01-01_to_2024-12-31.csv")
+matching_files = Utilities.find_files_by_pattern(Utilities.get_path_from_project_root("histories"), f"{tickers[0]}_{tickers[1]}*.csv")
+if len(matching_files) != 1:
+    raise Exception(f"Found {len(matching_files)} files matching {tickers[0]}_{tickers[1]}*.csv. Expected 1.")
+combined_file_path = matching_files[0]
+# combined_file_path = Utilities.get_path_from_project_root("histories/visa_mastercard_clean_2020-02-08_to_2025-02-06.csv")
+# combined_file_path = Utilities.get_path_from_project_root("histories/coke_pepsi_clean_2020-02-12_to_2025-02-09.csv")
 
 ### Global variables
 visa_last_price = 0
@@ -50,6 +60,11 @@ mastercard_price_col_name_t0 = f"mastercard_{eval_time}"
 visa_price_col_name_t1 = f"visa_{trade_time}"
 mastercard_price_col_name_t1 = f"mastercard_{trade_time}"
 performance_chart: pd.DataFrame = pd.DataFrame(columns=["day", "visa_shares", "visa_price", "mastercard_shares", "mastercard_price", "cash", "total_value"])
+
+# Define the stock enum
+class Stock(Enum):
+    VISA = 1
+    MASTERCARD = 2
 
 ### Functions
 
@@ -68,7 +83,7 @@ def add_daily_performance(day, visa_price, visa_shares, mastercard_price, master
         "total_value": total_value
     }, ignore_index=True)
 
-def log_daily_performance(day: int, freq: int = 1):
+def log_daily_performance(day: int, freq: int = 1, pad_end: bool = True):
     # Log the performance both all time and from the last [freq] days
     # Compare the performance with the market
 
@@ -103,7 +118,8 @@ def log_daily_performance(day: int, freq: int = 1):
     print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
     print(f"|{'Perf':<10}|{str(round(algo_perf_last_freq * 100, 1))+'%':<10}|{str(round(algo_perf_all_time * 100, 1))+'%':<10}|")
     print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
-    print("\n\n\n")
+    if pad_end:
+        print("\n\n\n")
 
 # Calculate the market impact of a trade
 def calculate_market_impact(volume) -> float:
@@ -241,7 +257,7 @@ for i in range(moving_average_window, len(stocks_df) - trade_delay):
     limit_mastercard_sale_price = stocks_df[mastercard_price_col_name_t0][i] # Take price at eval time with no delay
     if visa_shares > mastercard_shares and diff > trigger:
         attempted_trade_swap_count += 1
-        if not limit_ordering or visa_price >= limit_visa_sale_price:
+        if not is_limit_ordering or visa_price >= limit_visa_sale_price:
             (cash, visa_shares) = sell_stock(visa_shares, visa_price, Stock.VISA)
             (cash, mastercard_shares) = buy_stock(cash, mastercard_price, Stock.MASTERCARD)
             total_value = cash + visa_shares * visa_price + mastercard_shares * mastercard_price
@@ -251,11 +267,11 @@ for i in range(moving_average_window, len(stocks_df) - trade_delay):
             trades_left_today -= 1
             if trades_per_day_limit != 0 and trades_left_today == 0:
                 trade_limit_reached_counter += 1
-                print(f"Reached daily trade limit, skipping the rest of the day")
+                # print(f"Reached daily trade limit, skipping the rest of the day")
     # If holding mastercard and the ratio is below the moving average, sell mastercard and buy visa
     elif mastercard_shares > visa_shares and diff < -trigger:
         attempted_trade_swap_count += 1
-        if not limit_ordering or mastercard_price >= limit_mastercard_sale_price:
+        if not is_limit_ordering or mastercard_price >= limit_mastercard_sale_price:
             (cash, mastercard_shares) = sell_stock(mastercard_shares, mastercard_price, Stock.MASTERCARD)
             (cash, visa_shares) = buy_stock(cash, visa_price, Stock.VISA)
             total_value = cash + visa_shares * visa_price + mastercard_shares * mastercard_price
@@ -265,13 +281,13 @@ for i in range(moving_average_window, len(stocks_df) - trade_delay):
             trades_left_today -= 1
             if trades_per_day_limit != 0 and trades_left_today == 0:
                 trade_limit_reached_counter += 1
-                print(f"Reached daily trade limit, skipping the rest of the day")
+                # print(f"Reached daily trade limit, skipping the rest of the day")
 # Count the last day
 days_passed += 1
 if init_run == False:
     days_processed += 1
     add_daily_performance(days_processed, visa_price, visa_shares, mastercard_price, mastercard_shares, cash)
-    log_daily_performance(days_processed, eval_freq)
+    log_daily_performance(days_processed, eval_freq, False)
 
 print(f"Done simulating pairs trading! Triggered {trade_swap_count} total time out of {attempted_trade_swap_count} attempts.")
 print(f"Reached daily trade limit {trade_limit_reached_counter} times.")
