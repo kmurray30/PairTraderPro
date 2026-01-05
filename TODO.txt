@@ -1,0 +1,9 @@
+
+TODO
+    test one simple trade (simulated and real)
+    confirm orders (and track slippage etc)
+    -
+    Pull in initial data for moving average lookback
+    log to grafana
+    keep track of the ratio and alert or turn off the algo if it ever becomes really unstable
+    revoke refresh token via api in case of breach
