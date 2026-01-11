@@ -121,7 +121,10 @@ class TradeStationConfig:
         
         # Account ID - Your TradeStation account identifier
         # Format: 'SIM#######M' for simulation, real ID for production
-        self.account_id = self._get_required_env('ACCOUNT_ID')
+        if self.environment == 'sim':
+            self.account_id = self._get_required_env('ACCOUNT_ID_SIM')
+        else:
+            self.account_id = self._get_required_env('ACCOUNT_ID_PROD')
         
         # ============================================================
         # STEP 4: Set API Base URL Based on Environment
