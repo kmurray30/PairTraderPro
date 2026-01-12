@@ -182,6 +182,76 @@ class TradingMetrics:
         )
         
         # =====================================================================
+        # Trigger Proximity and Band Metrics
+        # =====================================================================
+        
+        # Trigger proximity (0 = no deviation, 1.0 = at trigger, >1 = past trigger)
+        self.trigger_proximity = self.meter.create_gauge(
+            name="pairs_trader_trigger_proximity",
+            description="Proximity to trigger threshold (1.0 = at trigger, >1.0 = past)",
+            unit="ratio"
+        )
+        
+        # Trigger bands for charting
+        self.trigger_upper = self.meter.create_gauge(
+            name="pairs_trader_trigger_upper",
+            description="Upper trigger threshold (ratio_ma * (1 + trigger_pct/100))",
+            unit="ratio"
+        )
+        
+        self.trigger_lower = self.meter.create_gauge(
+            name="pairs_trader_trigger_lower",
+            description="Lower trigger threshold (ratio_ma * (1 - trigger_pct/100))",
+            unit="ratio"
+        )
+        
+        # =====================================================================
+        # Individual Price Metrics
+        # =====================================================================
+        
+        # Current prices for both tickers (useful for charting)
+        self.price_ticker_a = self.meter.create_gauge(
+            name="pairs_trader_price_ticker_a",
+            description="Current price of ticker A",
+            unit="USD"
+        )
+        
+        self.price_ticker_b = self.meter.create_gauge(
+            name="pairs_trader_price_ticker_b",
+            description="Current price of ticker B",
+            unit="USD"
+        )
+        
+        # =====================================================================
+        # Flip Tracking Metrics
+        # =====================================================================
+        
+        # Number of flips (swaps) executed today
+        self.flips_today = self.meter.create_gauge(
+            name="pairs_trader_flips_today",
+            description="Swaps executed today (should be max 1)",
+            unit="flips"
+        )
+        
+        # =====================================================================
+        # Time and State Awareness Metrics
+        # =====================================================================
+        
+        # Minutes until market close (negative if market closed)
+        self.minutes_until_close = self.meter.create_gauge(
+            name="pairs_trader_minutes_until_close",
+            description="Minutes until market close (negative if closed)",
+            unit="minutes"
+        )
+        
+        # Which stock we're holding: 1 = ticker_a, -1 = ticker_b, 0 = none
+        self.holding_indicator = self.meter.create_gauge(
+            name="pairs_trader_holding_indicator",
+            description="Current holding: 1=ticker_a, -1=ticker_b, 0=none",
+            unit="stock"
+        )
+        
+        # =====================================================================
         # Slippage Metrics
         # =====================================================================
         
@@ -252,6 +322,42 @@ class TradingMetrics:
         """Record expected and actual slippage for a trade."""
         self.slippage_expected.record(expected)
         self.slippage_actual.record(actual)
+    
+    def record_trigger_proximity(self, proximity: float) -> None:
+        """Record proximity to trigger threshold."""
+        self.trigger_proximity.set(proximity)
+    
+    def record_trigger_bands(self, upper: float, lower: float) -> None:
+        """Record upper and lower trigger bands."""
+        self.trigger_upper.set(upper)
+        self.trigger_lower.set(lower)
+    
+    def record_prices(self, ticker_a_price: float, ticker_b_price: float) -> None:
+        """Record current prices for both tickers."""
+        self.price_ticker_a.set(ticker_a_price)
+        self.price_ticker_b.set(ticker_b_price)
+    
+    def record_flips_today(self, count: int) -> None:
+        """Record number of flips (swaps) executed today."""
+        self.flips_today.set(count)
+    
+    def record_minutes_until_close(self, minutes: int) -> None:
+        """Record minutes until market close (negative if closed)."""
+        self.minutes_until_close.set(minutes)
+    
+    def record_holding_indicator(self, stock_held: str) -> None:
+        """
+        Record which stock is currently held.
+        
+        Args:
+            stock_held: "ticker_a", "ticker_b", or "none"
+        """
+        if stock_held == "ticker_a":
+            self.holding_indicator.set(1)
+        elif stock_held == "ticker_b":
+            self.holding_indicator.set(-1)
+        else:
+            self.holding_indicator.set(0)
 
 
 class TradingLogger:
@@ -448,6 +554,98 @@ class TradingLogger:
             f"Daily reset: New trading day {new_day}, trade counter reset",
             state=state,
             trading_day=new_day
+        )
+    
+    def log_heartbeat(
+        self,
+        state: str,
+        holding_stock: str,
+        ratio: float,
+        ratio_ma: float,
+        deviation_pct: float,
+        trigger_proximity: float,
+        portfolio_value: float,
+        trades_today: int,
+        minutes_until_close: int
+    ) -> None:
+        """
+        Periodic heartbeat log with system vitals (emit once per minute).
+        
+        This is the primary debugging log - grep for HEARTBEAT to see
+        the system's vital signs over time.
+        """
+        self.info(
+            f"HEARTBEAT: state={state}, holding={holding_stock}, "
+            f"ratio={ratio:.5f}, MA={ratio_ma:.5f}, dev={deviation_pct:+.3f}%, "
+            f"proximity={trigger_proximity:.2f}, value=${portfolio_value:.2f}, "
+            f"trades={trades_today}, mins_to_close={minutes_until_close}",
+            state=state,
+            holding_stock=holding_stock,
+            ratio=ratio,
+            ratio_ma=ratio_ma,
+            deviation_pct=deviation_pct,
+            trigger_proximity=trigger_proximity,
+            portfolio_value=portfolio_value,
+            trades_today=trades_today,
+            minutes_until_close=minutes_until_close,
+            event_type="HEARTBEAT"
+        )
+    
+    def log_flip_complete(
+        self,
+        from_stock: str,
+        to_stock: str,
+        deviation_at_flip: float,
+        portfolio_value_before: float,
+        portfolio_value_after: float,
+        state: str
+    ) -> None:
+        """
+        Log completion of a stock swap (flip).
+        
+        This is distinct from log_trade_complete - a flip is specifically
+        a swap from one stock to another (max 1 per day typically).
+        """
+        profit_loss = portfolio_value_after - portfolio_value_before
+        profit_loss_pct = (profit_loss / portfolio_value_before) * 100 if portfolio_value_before > 0 else 0.0
+        
+        self.info(
+            f"FLIP_COMPLETE: {from_stock} -> {to_stock}, deviation={deviation_at_flip:+.3f}%, "
+            f"P&L=${profit_loss:+.2f} ({profit_loss_pct:+.3f}%)",
+            state=state,
+            from_stock=from_stock,
+            to_stock=to_stock,
+            deviation_at_flip=deviation_at_flip,
+            portfolio_value_before=portfolio_value_before,
+            portfolio_value_after=portfolio_value_after,
+            profit_loss=profit_loss,
+            profit_loss_pct=profit_loss_pct,
+            event_type="FLIP_COMPLETE"
+        )
+    
+    def log_market_open(self, state: str) -> None:
+        """Log market open event."""
+        self.info(
+            "MARKET_OPEN: Trading session started",
+            state=state,
+            event_type="MARKET_OPEN"
+        )
+    
+    def log_market_close(self, state: str) -> None:
+        """Log market close event."""
+        self.info(
+            "MARKET_CLOSE: Trading session ended",
+            state=state,
+            event_type="MARKET_CLOSE"
+        )
+    
+    def log_swap_cutoff_entered(self, minutes_before_close: int, state: str) -> None:
+        """Log entering the swap cutoff period (no new swaps allowed)."""
+        self.warning(
+            f"SWAP_CUTOFF: Entered no-swap zone ({minutes_before_close} mins before close)",
+            state=state,
+            minutes_before_close=minutes_before_close,
+            event_type="SWAP_CUTOFF"
         )
     
     # =========================================================================

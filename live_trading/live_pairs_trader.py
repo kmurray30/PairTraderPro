@@ -217,6 +217,15 @@ class LivePairsTrader:
         # Track shares held (for sell quantity)
         self._shares_held: int = 0
         
+        # Track last heartbeat minute for once-per-minute logging
+        self._last_heartbeat_minute: Optional[int] = None
+        
+        # Track market open/close state for event logging
+        self._was_market_open: bool = False
+        
+        # Track swap cutoff state for event logging
+        self._was_past_cutoff: bool = False
+        
         print("\nInitialization complete.")
     
     def _on_state_transition(
@@ -251,6 +260,36 @@ class LivePairsTrader:
         
         cutoff_time = dt_time(cutoff_hour, cutoff_minute)
         return now_et.time() >= cutoff_time
+    
+    def _minutes_until_market_close(self) -> int:
+        """
+        Calculate minutes until market close.
+        
+        Returns:
+            Positive number if market is open (minutes until 4:00 PM ET)
+            Negative number if market is closed (minutes since close or until open)
+        """
+        now_et = datetime.now(EASTERN_TZ)
+        current_time = now_et.time()
+        
+        # If we're between open and close
+        if MARKET_OPEN <= current_time < MARKET_CLOSE:
+            # Calculate minutes until 4:00 PM
+            now_minutes = current_time.hour * 60 + current_time.minute
+            close_minutes = MARKET_CLOSE.hour * 60 + MARKET_CLOSE.minute
+            return close_minutes - now_minutes
+        else:
+            # Market closed - return negative
+            if current_time >= MARKET_CLOSE:
+                # After close - minutes since close
+                now_minutes = current_time.hour * 60 + current_time.minute
+                close_minutes = MARKET_CLOSE.hour * 60 + MARKET_CLOSE.minute
+                return -(now_minutes - close_minutes)
+            else:
+                # Before open - minutes until open (negative)
+                now_minutes = current_time.hour * 60 + current_time.minute
+                open_minutes = MARKET_OPEN.hour * 60 + MARKET_OPEN.minute
+                return -(open_minutes - now_minutes)
     
     def _check_new_trading_day(self) -> bool:
         """Check if we've entered a new trading day (reset daily counters)."""
@@ -615,6 +654,16 @@ class LivePairsTrader:
                 state=self.state_machine.state_name
             )
             
+            # Log flip completion (swap-specific)
+            self.observability.logger.log_flip_complete(
+                from_stock=sell_symbol,
+                to_stock=buy_symbol,
+                deviation_at_flip=snapshot.deviation_percent,
+                portfolio_value_before=portfolio_value_before,
+                portfolio_value_after=portfolio_value_after,
+                state=self.state_machine.state_name
+            )
+            
             # Emit metrics
             self._emit_trade_metrics(trade_record, portfolio_value_after)
             
@@ -644,6 +693,11 @@ class LivePairsTrader:
             # Count trade toward daily limit
             self.state_machine.increment_trades_today()
             self.observability.metrics.record_trades_today(
+                self.state_machine.data.trades_today
+            )
+            
+            # Record flip count (same as trades_today for swaps)
+            self.observability.metrics.record_flips_today(
                 self.state_machine.data.trades_today
             )
             
@@ -712,13 +766,52 @@ class LivePairsTrader:
                     deviation_percent=snapshot.deviation_percent
                 )
                 
-                # Check market hours
-                if not self._is_market_open():
+                # Record trigger proximity and bands
+                trigger_proximity = abs(snapshot.deviation_percent) / self.trigger_percent if self.trigger_percent > 0 else 0.0
+                self.observability.metrics.record_trigger_proximity(trigger_proximity)
+                self.observability.metrics.record_trigger_bands(
+                    upper=snapshot.ratio_ma * (1 + self.trigger_percent/100),
+                    lower=snapshot.ratio_ma * (1 - self.trigger_percent/100)
+                )
+                
+                # Record individual prices
+                self.observability.metrics.record_prices(
+                    ticker_a_price=snapshot.ticker_a_quote.last,
+                    ticker_b_price=snapshot.ticker_b_quote.last
+                )
+                
+                # Record which stock we're holding
+                if self.state_machine.data.current_stock == StockHeld.TICKER_A:
+                    holding_stock = "ticker_a"
+                elif self.state_machine.data.current_stock == StockHeld.TICKER_B:
+                    holding_stock = "ticker_b"
+                else:
+                    holding_stock = "none"
+                self.observability.metrics.record_holding_indicator(holding_stock)
+                
+                # Check market hours and log transitions
+                market_open = self._is_market_open()
+                if market_open and not self._was_market_open:
+                    # Market just opened
+                    self.observability.logger.log_market_open(self.state_machine.state_name)
+                elif not market_open and self._was_market_open:
+                    # Market just closed
+                    self.observability.logger.log_market_close(self.state_machine.state_name)
+                self._was_market_open = market_open
+                
+                if not market_open:
                     time.sleep(self.poll_interval)
                     continue
                 
-                # Check swap cutoff
+                # Check swap cutoff and log transitions
                 past_cutoff = self._is_past_swap_cutoff()
+                if past_cutoff and not self._was_past_cutoff:
+                    # Just entered cutoff period
+                    self.observability.logger.log_swap_cutoff_entered(
+                        minutes_before_close=self.swap_cutoff_minutes,
+                        state=self.state_machine.state_name
+                    )
+                self._was_past_cutoff = past_cutoff
                 
                 # State-specific logic
                 current_state = self.state_machine.state
@@ -811,6 +904,28 @@ class LivePairsTrader:
                 cash_available = self.reconciler.get_buying_power()
                 self.observability.metrics.record_portfolio_value(portfolio_value)
                 self.observability.metrics.record_cash_available(cash_available)
+                
+                # Calculate and record minutes until close
+                minutes_until_close = self._minutes_until_market_close()
+                self.observability.metrics.record_minutes_until_close(minutes_until_close)
+                
+                # Emit heartbeat log once per minute
+                current_minute = datetime.now().minute
+                if current_minute != self._last_heartbeat_minute:
+                    self._last_heartbeat_minute = current_minute
+                    
+                    # Emit heartbeat with all vital signs
+                    self.observability.logger.log_heartbeat(
+                        state=self.state_machine.state_name,
+                        holding_stock=holding_stock,
+                        ratio=snapshot.ratio,
+                        ratio_ma=snapshot.ratio_ma,
+                        deviation_pct=snapshot.deviation_percent,
+                        trigger_proximity=trigger_proximity,
+                        portfolio_value=portfolio_value,
+                        trades_today=self.state_machine.data.trades_today,
+                        minutes_until_close=minutes_until_close
+                    )
                 
                 # Sleep until next poll
                 time.sleep(self.poll_interval)
