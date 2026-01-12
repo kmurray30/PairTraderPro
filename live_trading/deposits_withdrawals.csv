@@ -1,0 +1,15 @@
+timestamp,type,amount,notes
+# Manual log of cash deposits and withdrawals to the trading account.
+# This helps contextualize portfolio value spikes/drops that aren't from trading.
+#
+# Format:
+#   timestamp: ISO 8601 format (e.g., 2026-01-15T09:00:00Z)
+#   type: "deposit" or "withdrawal"
+#   amount: Dollar amount (positive number)
+#   notes: Optional description
+#
+# Example entries:
+# 2026-01-15T09:00:00Z,deposit,10000,Initial funding
+# 2026-03-01T10:30:00Z,deposit,5000,Adding more capital
+# 2026-06-15T14:00:00Z,withdrawal,2000,Taking profits
+

@@ -1,0 +1,116 @@
+# =============================================================================
+# Live Pairs Trading Algorithm - Configuration Settings
+# =============================================================================
+# This file contains all tunable parameters for the live pairs trading algorithm.
+# Modify these values to adjust the algorithm's behavior.
+#
+# IMPORTANT: Changes to this file require a restart of the algorithm.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Environment Selection
+# -----------------------------------------------------------------------------
+# Controls whether the algorithm runs against simulation or production API.
+#
+# Values:
+#   "sim"  - Paper trading (simulation) - SAFE, no real money
+#   "prod" - Live trading - REAL MONEY AT RISK
+#
+# WARNING: Setting this to "prod" will execute REAL trades with REAL money!
+# Double-check your configuration before switching to prod.
+
+environment: "sim"
+
+# -----------------------------------------------------------------------------
+# Trading Pair Configuration
+# -----------------------------------------------------------------------------
+# The algorithm trades between two correlated stocks, swapping positions
+# when their price ratio deviates significantly from its moving average.
+#
+# ratio = ticker_a_price / ticker_b_price
+# When ratio is HIGH relative to MA: ticker_a is overvalued, buy ticker_b
+# When ratio is LOW relative to MA: ticker_b is overvalued, buy ticker_a
+
+ticker_a: "V"      # First stock in the pair (numerator of ratio)
+ticker_b: "MA"     # Second stock in the pair (denominator of ratio)
+
+# -----------------------------------------------------------------------------
+# Algorithm Parameters
+# -----------------------------------------------------------------------------
+# These parameters control the core trading logic and must match the
+# historical simulation settings for consistent behavior.
+
+# Trigger threshold: minimum % deviation from MA to initiate a swap
+# Example: 0.4 means swap when ratio is 0.4% above or below MA
+trigger_percent: 0.4
+
+# Moving average window in minutes
+# The algorithm calculates MA over this many 1-minute bars
+# 240 minutes = 4 hours of trading data
+moving_average_window_minutes: 240
+
+# Maximum number of trades (swaps) allowed per trading day
+# Set to 0 for unlimited trades
+# Note: The initial buy counts toward this limit
+trades_per_day_limit: 1
+
+# -----------------------------------------------------------------------------
+# Performance Tracking Timeframes
+# -----------------------------------------------------------------------------
+# Timeframes for calculating and reporting performance metrics.
+# Format: "Nd" for days, "Nh" for hours (e.g., "7d", "24h", "60d")
+# Performance is tracked as compound return multipliers.
+
+performance_timeframes:
+  - "7d"
+  - "60d"
+
+# -----------------------------------------------------------------------------
+# Slippage Estimation Model
+# -----------------------------------------------------------------------------
+# Parameters for estimating expected slippage (market impact).
+# Used to compare expected vs actual slippage after trades execute.
+# These values should be calibrated to the specific stocks being traded.
+
+slippage:
+  # Annualized volatility of the stocks (decimal, not percent)
+  # Example: 0.15 = 15% annual volatility
+  volatility: 0.15
+  
+  # Average daily trading volume in shares
+  # Used to calculate market impact as a function of trade size
+  average_daily_volume: 6000000
+  
+  # Market impact coefficient (typically 0.001 to 0.01)
+  # Higher values = more conservative slippage estimates
+  impact_coefficient: 0.0055
+  
+  # SEC fee rate (applies to sell orders only)
+  # Current rate is $0.0000278 per dollar of sale proceeds
+  sec_fee_rate: 0.0000278
+
+# -----------------------------------------------------------------------------
+# Operational Settings
+# -----------------------------------------------------------------------------
+# These settings control how the algorithm operates in real-time.
+
+# How often to poll for new quotes (in seconds)
+# 1 second provides near-real-time price updates
+poll_interval_seconds: 1
+
+# How often to reconcile internal state with TradeStation API (in seconds)
+# This verifies our position tracking matches actual holdings
+reconciliation_interval_seconds: 60
+
+# Number of times to retry failed API calls before halting
+retry_attempts: 3
+
+# Backoff delay between retries (in seconds)
+# Actual delay = retry_backoff_seconds * retry_number
+retry_backoff_seconds: 2
+
+# Minutes before market close to stop initiating new swaps
+# This ensures both legs of a swap can complete before close
+# Example: 10 means no new swaps after 3:50 PM ET
+swap_cutoff_minutes_before_close: 10
+
