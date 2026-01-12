@@ -140,7 +140,8 @@ class OrderExecutor:
         account_id: str,
         logger=None,  # TradingLogger instance
         poll_interval: float = 0.5,
-        max_poll_attempts: int = 120  # 60 seconds max wait
+        max_poll_attempts: int = 120,  # 60 seconds max wait
+        allocated_cash: float = 0
     ):
         """
         Initialize the order executor.
@@ -151,19 +152,21 @@ class OrderExecutor:
             logger: TradingLogger for structured logging (optional)
             poll_interval: Seconds between order status polls
             max_poll_attempts: Max polls before timeout
+            allocated_cash: Maximum cash to use for trading (0 = use full account)
         """
         self.api = api
         self.account_id = account_id
         self.logger = logger
         self.poll_interval = poll_interval
         self.max_poll_attempts = max_poll_attempts
+        self.allocated_cash = allocated_cash
     
     def get_buying_power(self) -> float:
         """
         Get current available buying power.
         
         Returns:
-            Available buying power in dollars
+            Available buying power in dollars (capped by allocated_cash if set)
         """
         try:
             balances = self.api.account.get_balances(self.account_id)
@@ -176,7 +179,13 @@ class OrderExecutor:
             if buying_power == 0:
                 buying_power = balances.get('EquityWithLoanValue', 0)
             
-            return float(buying_power)
+            api_buying_power = float(buying_power)
+            
+            # Apply allocated_cash cap if set
+            if self.allocated_cash > 0:
+                return min(api_buying_power, self.allocated_cash)
+            else:
+                return api_buying_power
             
         except Exception as exception:
             print(f"ERROR getting buying power: {exception}")

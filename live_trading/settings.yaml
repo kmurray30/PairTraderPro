@@ -120,3 +120,18 @@ retry_backoff_seconds: 2
 # Example: 10 means no new swaps after 3:50 PM ET
 swap_cutoff_minutes_before_close: 10
 
+# -----------------------------------------------------------------------------
+# Allocated Cash for Trading (Optional Demo/Testing Limit)
+# -----------------------------------------------------------------------------
+# When set to a positive value, trades will never exceed this amount of cash.
+# This allows running the algorithm with limited capital (e.g., $1000 for testing)
+# while keeping the rest of your account balance untouched.
+#
+# Values:
+#   0 or null - Uses full account buying power (default behavior)
+#   Positive number - Caps trading to this dollar amount (e.g., 1000 for $1000)
+#
+# Example: Set to 1000 to limit trading to $1000 total allocation
+
+allocated_cash: 0
+

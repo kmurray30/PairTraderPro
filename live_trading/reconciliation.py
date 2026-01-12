@@ -137,7 +137,8 @@ class Reconciler:
         account_id: str,
         ticker_a: str,
         ticker_b: str,
-        logger=None  # TradingLogger
+        logger=None,  # TradingLogger
+        allocated_cash: float = 0
     ):
         """
         Initialize the reconciler.
@@ -148,12 +149,14 @@ class Reconciler:
             ticker_a: First ticker symbol
             ticker_b: Second ticker symbol
             logger: TradingLogger for logging
+            allocated_cash: Maximum cash to use for trading (0 = use full account)
         """
         self.api = api
         self.account_id = account_id
         self.ticker_a = ticker_a
         self.ticker_b = ticker_b
         self.logger = logger
+        self.allocated_cash = allocated_cash
     
     def fetch_positions(self) -> List[Position]:
         """
@@ -454,7 +457,7 @@ class Reconciler:
         Get current available buying power.
         
         Returns:
-            Buying power in dollars
+            Buying power in dollars (capped by allocated_cash if set)
         """
         try:
             balances = self.api.account.get_balances(self.account_id)
@@ -464,7 +467,13 @@ class Reconciler:
             if buying_power == 0:
                 buying_power = balances.get('CashBalance', 0)
             
-            return float(buying_power)
+            api_buying_power = float(buying_power)
+            
+            # Apply allocated_cash cap if set
+            if self.allocated_cash > 0:
+                return min(api_buying_power, self.allocated_cash)
+            else:
+                return api_buying_power
             
         except Exception as exception:
             print(f"ERROR getting buying power: {exception}")

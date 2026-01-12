@@ -128,6 +128,7 @@ class LivePairsTrader:
         self.performance_timeframes = self.settings['performance_timeframes']
         self.slippage_settings = self.settings.get('slippage', {})
         self.enforce_one_trade_per_day = self.settings.get('enforce_one_trade_per_day', True)
+        self.allocated_cash = self.settings.get('allocated_cash', 0)
         
         # Get environment setting
         self.environment = self.settings.get('environment', 'sim')
@@ -145,6 +146,10 @@ class LivePairsTrader:
         print(f"  Daily Trade Limit: {self.trades_per_day_limit}")
         print(f"  Swap Cutoff: {self.swap_cutoff_minutes} minutes before close")
         print(f"  Enforce 1 Trade/Day: {self.enforce_one_trade_per_day}")
+        if self.allocated_cash > 0:
+            print(f"  Allocated Cash: ${self.allocated_cash:,.2f}")
+        else:
+            print(f"  Allocated Cash: Full account balance")
         
         # =====================================================================
         # Environment Selection
@@ -188,7 +193,8 @@ class LivePairsTrader:
         self.order_executor = OrderExecutor(
             api=self.api,
             account_id=self.account_id,
-            logger=self.observability.logger
+            logger=self.observability.logger,
+            allocated_cash=self.allocated_cash
         )
         
         # Initialize performance tracker
@@ -205,7 +211,8 @@ class LivePairsTrader:
             account_id=self.account_id,
             ticker_a=self.ticker_a,
             ticker_b=self.ticker_b,
-            logger=self.observability.logger
+            logger=self.observability.logger,
+            allocated_cash=self.allocated_cash
         )
         
         # Track last reconciliation time
