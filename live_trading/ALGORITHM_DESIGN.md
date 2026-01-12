@@ -161,17 +161,20 @@ moving_average_window_minutes: 240 # 4 hours of 1-minute bars
 trades_per_day_limit: 1           # Max swaps per day (0 = unlimited)
 ```
 
-### Hardcoded Safety Flag
+### Secondary Safety Flag
 
-In addition to `trades_per_day_limit`, there is a **hardcoded** safety flag in `live_pairs_trader.py`:
+In addition to `trades_per_day_limit`, there is a secondary safety setting in `settings.yaml`:
 
-```python
-ENFORCE_ONE_TRADE_PER_DAY = True
+```yaml
+# Secondary safety check: enforce a hard limit of 1 trade per day
+enforce_one_trade_per_day: true
 ```
 
-When `True` (default), this flag **overrides** `trades_per_day_limit` to ensure no more than 1 swap per day, regardless of configuration. This is a failsafe against misconfiguration.
+When `true` (default), this flag acts as an **additional check** on top of `trades_per_day_limit`. Both must allow the trade for it to execute. This is a failsafe against misconfiguration.
 
-To disable this safety check (not recommended), you must edit the code directly.
+**Why two settings?**
+- `trades_per_day_limit`: The primary configurable limit
+- `enforce_one_trade_per_day`: A secondary safety net that catches mistakes like setting `trades_per_day_limit: 100`
 
 ### Slippage Model
 
@@ -567,7 +570,7 @@ The algorithm stores minimal state - everything can be recovered from:
 
 1. **Environment Toggle**: Controlled by `environment` in settings.yaml (default: "sim"). Production mode shows prominent warning.
 
-2. **ENFORCE_ONE_TRADE_PER_DAY**: Hardcoded flag in code that prevents more than 1 swap per day, regardless of `trades_per_day_limit` setting. This is a failsafe against configuration errors.
+2. **enforce_one_trade_per_day**: Secondary safety setting in `settings.yaml` that prevents more than 1 swap per day when enabled. Acts as a failsafe alongside `trades_per_day_limit`.
 
 3. **Sequential Orders**: Sell always completes before buy starts.
 

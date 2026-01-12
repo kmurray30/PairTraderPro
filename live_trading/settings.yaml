@@ -54,6 +54,12 @@ moving_average_window_minutes: 240
 # Note: The initial buy counts toward this limit
 trades_per_day_limit: 1
 
+# Secondary safety check: enforce a hard limit of 1 trade per day
+# When true, this acts as an additional check on top of trades_per_day_limit
+# Both checks must pass for a trade to execute
+# This is a safety net against configuration errors
+enforce_one_trade_per_day: true
+
 # -----------------------------------------------------------------------------
 # Performance Tracking Timeframes
 # -----------------------------------------------------------------------------

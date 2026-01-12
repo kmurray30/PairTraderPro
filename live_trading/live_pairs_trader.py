@@ -59,17 +59,6 @@ EASTERN_TZ = ZoneInfo("America/New_York")
 MARKET_OPEN = dt_time(9, 30)
 MARKET_CLOSE = dt_time(16, 0)
 
-# =============================================================================
-# HARDCODED SAFETY FLAG - DO NOT CHANGE WITHOUT UNDERSTANDING THE IMPLICATIONS
-# =============================================================================
-# This flag enforces a maximum of 1 trade (swap) per day, regardless of the
-# trades_per_day_limit setting in settings.yaml. This is a safety mechanism
-# to prevent runaway trading due to configuration errors or bugs.
-#
-# Set to True to enforce the 1 trade/day limit (recommended for production)
-# Set to False to allow the configurable trades_per_day_limit to control
-ENFORCE_ONE_TRADE_PER_DAY = True
-# =============================================================================
 
 
 def load_settings() -> dict:
@@ -138,6 +127,7 @@ class LivePairsTrader:
         self.retry_backoff = self.settings['retry_backoff_seconds']
         self.performance_timeframes = self.settings['performance_timeframes']
         self.slippage_settings = self.settings.get('slippage', {})
+        self.enforce_one_trade_per_day = self.settings.get('enforce_one_trade_per_day', True)
         
         # Get environment setting
         self.environment = self.settings.get('environment', 'sim')
@@ -154,7 +144,7 @@ class LivePairsTrader:
         print(f"  MA Window: {self.ma_window} minutes")
         print(f"  Daily Trade Limit: {self.trades_per_day_limit}")
         print(f"  Swap Cutoff: {self.swap_cutoff_minutes} minutes before close")
-        print(f"  Enforce 1 Trade/Day: {ENFORCE_ONE_TRADE_PER_DAY}")
+        print(f"  Enforce 1 Trade/Day: {self.enforce_one_trade_per_day}")
         
         # =====================================================================
         # Environment Selection
@@ -752,18 +742,17 @@ class LivePairsTrader:
                     # Check #1: Configurable daily limit from settings.yaml
                     config_allows_trade = trades_today < self.trades_per_day_limit or self.trades_per_day_limit == 0
                     
-                    # Check #2: HARDCODED safety limit (cannot be overridden by config)
+                    # Check #2: Secondary safety check from settings
                     # This is a failsafe to prevent runaway trading
-                    safety_allows_trade = True
-                    if ENFORCE_ONE_TRADE_PER_DAY and trades_today >= 1:
-                        safety_allows_trade = False
-                        if should_swap:
-                            self.observability.logger.warning(
-                                f"SAFETY: ENFORCE_ONE_TRADE_PER_DAY blocked swap (trades_today={trades_today})",
-                                state=self.state_machine.state_name,
-                                trades_today=trades_today,
-                                safety_flag="ENFORCE_ONE_TRADE_PER_DAY"
-                            )
+                    safety_allows_trade = not self.enforce_one_trade_per_day or trades_today < 1
+
+                    if config_allows_trade and not safety_allows_trade:
+                        self.state_machine.force_error_state(
+                            f"Safety violation: Primary limit allowed trade but safety blocked it. "
+                            f"trades_per_day_limit={self.trades_per_day_limit} is too high! "
+                            f"trades_today={trades_today}"
+                        )
+                        return
                     
                     # Both checks must pass
                     can_trade = config_allows_trade and safety_allows_trade
