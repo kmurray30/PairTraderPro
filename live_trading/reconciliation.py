@@ -27,6 +27,9 @@ from enum import Enum
 
 from .state_machine import TradingState, StockHeld, StateData
 
+# Import terminal color utilities
+from .terminal_colors import print_grey, print_white, print_yellow, print_red, format_currency
+
 
 @dataclass
 class Position:
@@ -179,10 +182,18 @@ class Reconciler:
                 )
                 positions.append(position)
             
+            # Print positions found
+            if positions:
+                print_white(f"Positions fetched: {len(positions)} position(s)")
+                for pos in positions:
+                    print_grey(f"  {pos.symbol}: {pos.quantity} shares @ {format_currency(pos.average_price)}, Value: {format_currency(pos.market_value)}")
+            else:
+                print_grey("Positions fetched: No positions found")
+            
             return positions
             
         except Exception as exception:
-            print(f"ERROR fetching positions: {exception}")
+            print_red(f"ERROR fetching positions: {exception}")
             return []
     
     def fetch_pending_orders(self) -> List[PendingOrder]:
@@ -211,10 +222,18 @@ class Reconciler:
                     )
                     pending_orders.append(order)
             
+            # Print pending orders found
+            if pending_orders:
+                print_yellow(f"⚠️  Pending orders found: {len(pending_orders)} order(s)")
+                for order in pending_orders:
+                    print_yellow(f"  Order {order.order_id}: {order.action} {order.quantity} {order.symbol} ({order.status})")
+            else:
+                print_grey("No pending orders")
+            
             return pending_orders
             
         except Exception as exception:
-            print(f"ERROR fetching orders: {exception}")
+            print_red(f"ERROR fetching orders: {exception}")
             return []
     
     def check_state(self) -> ReconciliationResult:
@@ -228,6 +247,7 @@ class Reconciler:
         Returns:
             ReconciliationResult with recommended state and any actions needed
         """
+        print_white("🔍 Running state reconciliation check...")
         positions = self.fetch_positions()
         pending_orders = self.fetch_pending_orders()
         
@@ -250,10 +270,18 @@ class Reconciler:
         if unexpected_positions:
             # Log warning but don't fail - just ignore other positions
             for pos in unexpected_positions:
-                print(f"WARNING: Found position in {pos.symbol} (not in trading pair)")
+                print_yellow(f"⚠️  WARNING: Found position in {pos.symbol} (not in trading pair)")
         
         # Determine state based on what we found
-        return self._determine_state(pair_positions, pair_pending, positions, pending_orders)
+        result = self._determine_state(pair_positions, pair_pending, positions, pending_orders)
+        
+        # Print result
+        if result.is_consistent:
+            print_white(f"✓ State check complete: Recommended state = {result.recommended_state.name}, Stock = {result.current_stock.value}, Action = {result.action_needed.name}")
+        else:
+            print_yellow(f"⚠️  State inconsistency: {result.error_message}")
+        
+        return result
     
     def _determine_state(
         self,
@@ -471,12 +499,15 @@ class Reconciler:
             
             # Apply allocated_cash cap if set
             if self.allocated_cash > 0:
-                return min(api_buying_power, self.allocated_cash)
+                final_buying_power = min(api_buying_power, self.allocated_cash)
             else:
-                return api_buying_power
+                final_buying_power = api_buying_power
+            
+            print_grey(f"Buying power check: {format_currency(final_buying_power)}")
+            return final_buying_power
             
         except Exception as exception:
-            print(f"ERROR getting buying power: {exception}")
+            print_red(f"ERROR getting buying power: {exception}")
             return 0.0
     
     def get_portfolio_value(self) -> float:
@@ -500,9 +531,11 @@ class Reconciler:
                 position_value = sum(p.market_value for p in positions)
                 equity = cash + position_value
             
-            return float(equity)
+            portfolio_value = float(equity)
+            print_grey(f"Portfolio value check: {format_currency(portfolio_value)}")
+            return portfolio_value
             
         except Exception as exception:
-            print(f"ERROR getting portfolio value: {exception}")
+            print_red(f"ERROR getting portfolio value: {exception}")
             return 0.0
 

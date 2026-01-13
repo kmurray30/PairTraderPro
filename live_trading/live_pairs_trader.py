@@ -51,6 +51,9 @@ from .performance_tracker import PerformanceTracker, SlippageTracker
 from .reconciliation import Reconciler, RecoveryAction
 from .observability import Observability
 
+# Import terminal color utilities
+from .terminal_colors import print_grey, print_white, print_yellow, print_red, format_currency, format_percent, format_ratio
+
 
 # Eastern timezone for market hours
 EASTERN_TZ = ZoneInfo("America/New_York")
@@ -751,6 +754,7 @@ class LivePairsTrader:
                 
                 # Skip if in error state (frozen)
                 if self.state_machine.is_in_error():
+                    print_red("⚠️  Algorithm is in ERROR state - frozen")
                     time.sleep(self.poll_interval)
                     continue
                 
@@ -758,7 +762,7 @@ class LivePairsTrader:
                 snapshot = self.price_tracker.get_price_snapshot()
                 
                 if not snapshot:
-                    print("WARNING: Failed to get price snapshot")
+                    print_yellow("WARNING: Failed to get price snapshot")
                     time.sleep(self.poll_interval)
                     continue
                 
@@ -796,6 +800,13 @@ class LivePairsTrader:
                     holding_stock = "none"
                 self.observability.metrics.record_holding_indicator(holding_stock)
                 
+                # Print poll cycle summary in grey
+                print_grey(
+                    f"State: {self.state_machine.state_name} ({holding_stock}) | "
+                    f"Ratio: {format_ratio(snapshot.ratio)} | MA: {format_ratio(snapshot.ratio_ma)} | "
+                    f"Dev: {format_percent(snapshot.deviation_percent)} | Prox: {trigger_proximity:.2f}"
+                )
+                
                 # Check market hours and log transitions
                 market_open = self._is_market_open()
                 if market_open and not self._was_market_open:
@@ -807,6 +818,7 @@ class LivePairsTrader:
                 self._was_market_open = market_open
                 
                 if not market_open:
+                    print_grey("Market is closed")
                     time.sleep(self.poll_interval)
                     continue
                 
@@ -825,6 +837,7 @@ class LivePairsTrader:
                 
                 if current_state == TradingState.CASH:
                     # In cash - execute initial buy
+                    print_white("State: CASH - evaluating initial buy")
                     min_price = min(snapshot.ticker_a_quote.last, snapshot.ticker_b_quote.last)
                     if self._check_sufficient_buying_power(min_price):
                         self._execute_initial_buy(snapshot)
@@ -857,6 +870,17 @@ class LivePairsTrader:
                     # Both checks must pass
                     can_trade = config_allows_trade and safety_allows_trade
                     
+                    # Print what we're evaluating
+                    if should_swap:
+                        if can_trade and not past_cutoff:
+                            print_white(f"Trigger conditions met: Executing swap {direction}")
+                        elif not can_trade:
+                            print_grey(f"Trigger met but daily limit reached ({trades_today} trades)")
+                        elif past_cutoff:
+                            print_grey(f"Trigger met but past swap cutoff")
+                    else:
+                        print_grey(f"Holding {stock_name}, waiting for trigger")
+                    
                     if should_swap and can_trade and not past_cutoff:
                         self._execute_swap(snapshot, direction)
                     elif not can_trade and current_state != TradingState.HOLDING_DAILY_LIMIT:
@@ -867,12 +891,13 @@ class LivePairsTrader:
                 
                 elif current_state == TradingState.HOLDING_DAILY_LIMIT:
                     # Just wait - daily reset will transition us back
-                    pass
+                    print_grey("State: HOLDING_DAILY_LIMIT - waiting for daily reset")
                 
                 elif current_state in (TradingState.PENDING_BUY, TradingState.PENDING_SELL):
                     # Check order status
                     order_id = self.state_machine.data.pending_order_id
                     if order_id:
+                        print_grey(f"State: {current_state.name} - checking order {order_id}")
                         status, order_data = self.order_executor.get_order_status(order_id)
                         
                         if status == OrderStatus.FILLED:
@@ -942,7 +967,7 @@ class LivePairsTrader:
                 break
             
             except Exception as exception:
-                print(f"\nERROR in main loop: {exception}")
+                print_red(f"ERROR in main loop: {exception}")
                 self.observability.logger.error(
                     f"Main loop error: {exception}",
                     state=self.state_machine.state_name

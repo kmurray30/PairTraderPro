@@ -34,6 +34,9 @@ from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
+# Import terminal color utilities
+from .terminal_colors import print_grey, print_white, print_yellow, print_red, format_currency, format_percent
+
 
 class OrderStatus(Enum):
     """Order status values from TradeStation API."""
@@ -183,9 +186,12 @@ class OrderExecutor:
             
             # Apply allocated_cash cap if set
             if self.allocated_cash > 0:
-                return min(api_buying_power, self.allocated_cash)
+                final_buying_power = min(api_buying_power, self.allocated_cash)
             else:
-                return api_buying_power
+                final_buying_power = api_buying_power
+            
+            print_grey(f"Buying power: {format_currency(final_buying_power)}")
+            return final_buying_power
             
         except Exception as exception:
             print(f"ERROR getting buying power: {exception}")
@@ -245,17 +251,17 @@ class OrderExecutor:
                 status = orders[0].get('Status', '')
                 
                 if order_id:
-                    print(f"Order placed: {action} {quantity} {symbol}, "
-                          f"OrderID: {order_id}, Status: {status}")
+                    print_white(f"Order placed: {action} {quantity} {symbol}, OrderID: {order_id}, Status: {status}")
                     return order_id, None
             
             # Order placement failed
             error_msg = response.get('Message', 'Unknown error placing order')
+            print_red(f"Order placement failed: {error_msg}")
             return None, error_msg
             
         except Exception as exception:
             error_msg = str(exception)
-            print(f"ERROR placing order: {error_msg}")
+            print_red(f"ERROR placing order: {error_msg}")
             return None, error_msg
     
     def get_order_status(self, order_id: str) -> Tuple[OrderStatus, Dict[str, Any]]:
@@ -279,6 +285,7 @@ class OrderExecutor:
             except ValueError:
                 status = OrderStatus.UNKNOWN
             
+            print_grey(f"Order {order_id} status: {status_str}")
             return status, response
             
         except Exception as exception:
@@ -398,7 +405,7 @@ class OrderExecutor:
                 # Still pending - continue polling
                 if status == OrderStatus.PARTIALLY_FILLED:
                     filled_so_far = order_data.get('FilledQuantity', 0)
-                    print(f"Partial fill: {filled_so_far}/{quantity} shares")
+                    print_grey(f"Partial fill: {filled_so_far}/{quantity} shares")
                 
                 time.sleep(self.poll_interval)
                 attempts += 1
@@ -542,7 +549,7 @@ class OrderExecutor:
             Tuple of (sell_result, buy_result)
             buy_result is None if sell failed
         """
-        print(f"Executing swap: SELL {sell_quantity} {sell_symbol} -> BUY {buy_symbol}")
+        print_white(f"🔄 Executing swap: SELL {sell_quantity} {sell_symbol} -> BUY {buy_symbol}")
         
         # Step 1: Execute SELL order
         sell_result = self.place_and_wait_for_fill(
@@ -555,10 +562,10 @@ class OrderExecutor:
         
         # Check if sell was successful
         if not sell_result.is_filled:
-            print(f"SELL failed: {sell_result.error_message}")
+            print_red(f"SELL failed: {sell_result.error_message}")
             return sell_result, None
         
-        print(f"SELL complete: {sell_result.filled_quantity} @ ${sell_result.actual_price:.2f}")
+        print_white(f"✓ SELL complete: {sell_result.filled_quantity} @ {format_currency(sell_result.actual_price)}")
         
         # Step 2: Get updated buying power
         # Small delay to let balances update
@@ -566,19 +573,19 @@ class OrderExecutor:
         available_cash = self.get_buying_power()
         
         if available_cash <= 0:
-            print(f"ERROR: No buying power available after sell")
+            print_red(f"ERROR: No buying power available after sell")
             return sell_result, None
         
         # Step 3: Calculate shares to buy
         shares_to_buy = self.calculate_shares_to_buy(current_price_buy, available_cash)
         
         if shares_to_buy <= 0:
-            print(f"ERROR: Cannot afford any shares of {buy_symbol} "
-                  f"(price ${current_price_buy:.2f}, cash ${available_cash:.2f})")
+            print_red(f"ERROR: Cannot afford any shares of {buy_symbol} "
+                  f"(price {format_currency(current_price_buy)}, cash {format_currency(available_cash)})")
             return sell_result, None
         
-        print(f"Buying {shares_to_buy} shares of {buy_symbol} "
-              f"(${available_cash:.2f} / ${current_price_buy:.2f})")
+        print_white(f"Buying {shares_to_buy} shares of {buy_symbol} "
+              f"({format_currency(available_cash)} / {format_currency(current_price_buy)})")
         
         # Step 4: Execute BUY order
         buy_result = self.place_and_wait_for_fill(
@@ -590,9 +597,9 @@ class OrderExecutor:
         )
         
         if buy_result.is_filled:
-            print(f"BUY complete: {buy_result.filled_quantity} @ ${buy_result.actual_price:.2f}")
+            print_white(f"✓ BUY complete: {buy_result.filled_quantity} @ {format_currency(buy_result.actual_price)}")
         else:
-            print(f"BUY failed: {buy_result.error_message}")
+            print_red(f"BUY failed: {buy_result.error_message}")
         
         return sell_result, buy_result
     
@@ -620,18 +627,18 @@ class OrderExecutor:
         available_cash = self.get_buying_power()
         
         if available_cash <= 0:
-            print("ERROR: No buying power available")
+            print_red("ERROR: No buying power available")
             return None
         
         # Calculate shares
         shares_to_buy = self.calculate_shares_to_buy(current_price, available_cash)
         
         if shares_to_buy <= 0:
-            print(f"ERROR: Cannot afford any shares of {symbol}")
+            print_red(f"ERROR: Cannot afford any shares of {symbol}")
             return None
         
-        print(f"Initial buy: {shares_to_buy} shares of {symbol} "
-              f"(${available_cash:.2f} / ${current_price:.2f})")
+        print_white(f"Initial buy: {shares_to_buy} shares of {symbol} "
+              f"({format_currency(available_cash)} / {format_currency(current_price)})")
         
         # Execute the buy
         return self.place_and_wait_for_fill(

@@ -19,6 +19,9 @@ from dataclasses import dataclass, field
 from collections import deque
 import statistics
 
+# Import terminal color utilities
+from .terminal_colors import print_grey, print_white, format_currency, format_ratio
+
 
 @dataclass
 class Quote:
@@ -326,6 +329,10 @@ class PriceTracker:
             if quote_b:
                 self._last_quote_b = quote_b
             
+            # Print quote fetch in grey
+            if quote_a and quote_b:
+                print_grey(f"Quotes fetched: {self.ticker_a}={format_currency(quote_a.last)}, {self.ticker_b}={format_currency(quote_b.last)}")
+            
             return quote_a, quote_b
             
         except Exception as exception:
@@ -350,6 +357,10 @@ class PriceTracker:
         
         # Add to rolling window (deque handles size limit automatically)
         self.ratio_history.append(current_ratio)
+        
+        # Print MA update in white
+        new_ma = statistics.mean(self.ratio_history) if len(self.ratio_history) > 0 else current_ratio
+        print_white(f"MA updated: New ratio={format_ratio(current_ratio)}, Updated MA={format_ratio(new_ma)}, History length={len(self.ratio_history)}")
         
         return True
     

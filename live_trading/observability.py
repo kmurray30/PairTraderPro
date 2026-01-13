@@ -41,6 +41,9 @@ from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 
+# Import terminal color utilities
+from .terminal_colors import print_grey, print_white, print_yellow, print_red, format_currency, format_percent, format_ratio
+
 
 class AlertLevel(Enum):
     """Log levels that determine alert severity."""
@@ -272,10 +275,12 @@ class TradingMetrics:
     def record_portfolio_value(self, value: float) -> None:
         """Record current portfolio value."""
         self.portfolio_value.set(value)
+        print_white(f"Portfolio Value: {format_currency(value)}", timestamp=False)
     
     def record_cash_available(self, cash: float) -> None:
         """Record current available cash/buying power."""
         self.cash_available.set(cash)
+        print_grey(f"Cash Available: {format_currency(cash)}")
     
     def record_return_multipliers(
         self,
@@ -287,6 +292,7 @@ class TradingMetrics:
         self.return_multiplier_7d.set(multiplier_7d)
         self.return_multiplier_60d.set(multiplier_60d)
         self.return_multiplier_all_time.set(multiplier_all_time)
+        print_white(f"Return Multipliers: 7d={multiplier_7d:.4f}, 60d={multiplier_60d:.4f}, All={multiplier_all_time:.4f}", timestamp=False)
     
     def record_relative_performance(
         self,
@@ -298,14 +304,17 @@ class TradingMetrics:
         self.relative_perf_7d.set(relative_7d)
         self.relative_perf_60d.set(relative_60d)
         self.relative_perf_all_time.set(relative_all_time)
+        print_white(f"Relative Performance: 7d={relative_7d:.4f}, 60d={relative_60d:.4f}, All={relative_all_time:.4f}", timestamp=False)
     
     def record_state(self, state_value: int) -> None:
         """Record current algorithm state as numeric value."""
         self.state.set(state_value)
+        # State changes are logged elsewhere, no print here to avoid duplication
     
     def record_trades_today(self, count: int) -> None:
         """Record number of trades executed today."""
         self.trades_today.set(count)
+        print_grey(f"Trades Today: {count}")
     
     def record_ratio_metrics(
         self,
@@ -317,33 +326,40 @@ class TradingMetrics:
         self.ratio.set(ratio)
         self.ratio_ma.set(ratio_ma)
         self.ratio_deviation.set(deviation_percent)
+        print_grey(f"Ratio: {format_ratio(ratio)} | MA: {format_ratio(ratio_ma)} | Dev: {format_percent(deviation_percent)}")
     
     def record_slippage(self, expected: float, actual: float) -> None:
         """Record expected and actual slippage for a trade."""
         self.slippage_expected.record(expected)
         self.slippage_actual.record(actual)
+        print_white(f"Slippage: Expected {format_percent(expected, 4)}, Actual {format_percent(actual, 4)}", timestamp=False)
     
     def record_trigger_proximity(self, proximity: float) -> None:
         """Record proximity to trigger threshold."""
         self.trigger_proximity.set(proximity)
+        print_grey(f"Trigger Proximity: {proximity:.2f}")
     
     def record_trigger_bands(self, upper: float, lower: float) -> None:
         """Record upper and lower trigger bands."""
         self.trigger_upper.set(upper)
         self.trigger_lower.set(lower)
+        # Don't print bands every time, they're constant once set
     
     def record_prices(self, ticker_a_price: float, ticker_b_price: float) -> None:
         """Record current prices for both tickers."""
         self.price_ticker_a.set(ticker_a_price)
         self.price_ticker_b.set(ticker_b_price)
+        print_grey(f"Prices: A={format_currency(ticker_a_price)} | B={format_currency(ticker_b_price)}")
     
     def record_flips_today(self, count: int) -> None:
         """Record number of flips (swaps) executed today."""
         self.flips_today.set(count)
+        print_grey(f"Flips Today: {count}")
     
     def record_minutes_until_close(self, minutes: int) -> None:
         """Record minutes until market close (negative if closed)."""
         self.minutes_until_close.set(minutes)
+        print_grey(f"Minutes to Close: {minutes}")
     
     def record_holding_indicator(self, stock_held: str) -> None:
         """
@@ -358,6 +374,7 @@ class TradingMetrics:
             self.holding_indicator.set(-1)
         else:
             self.holding_indicator.set(0)
+        print_grey(f"Holding: {stock_held}")
 
 
 class TradingLogger:
@@ -467,6 +484,7 @@ class TradingLogger:
             to_state=to_state,
             reason=reason
         )
+        print_white(f"State transition: {from_state} -> {to_state} (Reason: {reason})")
     
     def log_order_placed(
         self,
@@ -485,6 +503,7 @@ class TradingLogger:
             symbol=symbol,
             quantity=quantity
         )
+        print_white(f"Order placed: {action} {quantity} {symbol} (Order ID: {order_id})")
     
     def log_order_filled(
         self,
@@ -509,6 +528,7 @@ class TradingLogger:
             actual_price=actual_price,
             slippage_pct=slippage_pct
         )
+        print_white(f"Order filled: {action} {quantity} {symbol} @ {format_currency(actual_price)} (expected {format_currency(expected_price)}, slippage {format_percent(slippage_pct)})")
     
     def log_trade_complete(
         self,
@@ -529,6 +549,7 @@ class TradingLogger:
             period_return_pct=period_return_pct,
             compound_return_all_time=compound_return_all_time
         )
+        print_white(f"Trade complete: Portfolio {format_currency(portfolio_value_before)} -> {format_currency(portfolio_value_after)} ({format_percent(period_return_pct)}) | All-time: {compound_return_all_time:.4f}x")
     
     def log_trigger_met(
         self,
@@ -547,6 +568,7 @@ class TradingLogger:
             deviation_pct=deviation_pct,
             direction=direction
         )
+        print_white(f"🔔 TRIGGER MET: ratio={format_ratio(ratio)}, MA={format_ratio(ratio_ma)}, deviation={format_percent(deviation_pct)}, direction={direction}")
     
     def log_daily_reset(self, new_day: str, state: str) -> None:
         """Log daily trade counter reset."""
@@ -555,6 +577,7 @@ class TradingLogger:
             state=state,
             trading_day=new_day
         )
+        print_white(f"📅 Daily reset: New trading day {new_day}, trade counter reset")
     
     def log_heartbeat(
         self,
@@ -590,6 +613,14 @@ class TradingLogger:
             minutes_until_close=minutes_until_close,
             event_type="HEARTBEAT"
         )
+        # Print formatted heartbeat to terminal
+        print_white("═" * 60, timestamp=False)
+        print_white(f"💓 HEARTBEAT {datetime.now().strftime('%H:%M:%S')}", timestamp=False)
+        print_white(f"  State: {state} | Holding: {holding_stock} | Trades Today: {trades_today}", timestamp=False)
+        print_white(f"  Ratio: {format_ratio(ratio)} | MA: {format_ratio(ratio_ma)} | Deviation: {format_percent(deviation_pct)}", timestamp=False)
+        print_white(f"  Trigger Proximity: {trigger_proximity:.2f} | Portfolio: {format_currency(portfolio_value)}", timestamp=False)
+        print_white(f"  Minutes to Close: {minutes_until_close}", timestamp=False)
+        print_white("═" * 60, timestamp=False)
     
     def log_flip_complete(
         self,
@@ -622,6 +653,7 @@ class TradingLogger:
             profit_loss_pct=profit_loss_pct,
             event_type="FLIP_COMPLETE"
         )
+        print_white(f"🔄 FLIP COMPLETE: {from_stock} -> {to_stock} | Deviation at flip: {format_percent(deviation_at_flip)} | P&L: {format_currency(profit_loss)} ({format_percent(profit_loss_pct)})")
     
     def log_market_open(self, state: str) -> None:
         """Log market open event."""
@@ -630,6 +662,7 @@ class TradingLogger:
             state=state,
             event_type="MARKET_OPEN"
         )
+        print_white("🔔 MARKET OPEN: Trading session started")
     
     def log_market_close(self, state: str) -> None:
         """Log market close event."""
@@ -638,6 +671,7 @@ class TradingLogger:
             state=state,
             event_type="MARKET_CLOSE"
         )
+        print_white("🔕 MARKET CLOSE: Trading session ended")
     
     def log_swap_cutoff_entered(self, minutes_before_close: int, state: str) -> None:
         """Log entering the swap cutoff period (no new swaps allowed)."""
@@ -647,6 +681,7 @@ class TradingLogger:
             minutes_before_close=minutes_before_close,
             event_type="SWAP_CUTOFF"
         )
+        print_yellow(f"⚠️  SWAP CUTOFF: Entered no-swap zone ({minutes_before_close} mins before close)")
     
     # =========================================================================
     # Critical Alert Logging Methods (APP FREEZES ON THESE)
@@ -671,6 +706,7 @@ class TradingLogger:
             rejection_reason=reason,
             alert_type="ORDER_REJECTED"
         )
+        print_red(f"❌ CRITICAL - ORDER_REJECTED: Order {order_id} for {symbol} rejected: {reason}")
     
     def log_position_mismatch(
         self,
@@ -689,6 +725,7 @@ class TradingLogger:
             actual_position=actual,
             alert_type="POSITION_MISMATCH"
         )
+        print_red(f"❌ CRITICAL - POSITION_MISMATCH: Expected {expected}, found {actual}")
     
     def log_api_failure_exhausted(
         self,
@@ -709,6 +746,7 @@ class TradingLogger:
             last_error=last_error,
             alert_type="API_FAILURE_EXHAUSTED"
         )
+        print_red(f"❌ CRITICAL - API_FAILURE_EXHAUSTED: {endpoint} failed after {attempts} attempts: {last_error}")
     
     def log_insufficient_buying_power(
         self,
@@ -727,6 +765,7 @@ class TradingLogger:
             available=available,
             alert_type="INSUFFICIENT_BUYING_POWER"
         )
+        print_yellow(f"⚠️  INSUFFICIENT_BUYING_POWER: Need {format_currency(required)}, have {format_currency(available)}")
     
     def log_invalid_state_transition(
         self,
@@ -746,6 +785,7 @@ class TradingLogger:
             reason=reason,
             alert_type="INVALID_STATE_TRANSITION"
         )
+        print_red(f"❌ CRITICAL - INVALID_STATE_TRANSITION: Cannot transition from {from_state} to {to_state}: {reason}")
     
     def log_unexpected_position(
         self,
@@ -764,6 +804,7 @@ class TradingLogger:
             quantity=quantity,
             alert_type="UNEXPECTED_POSITION"
         )
+        print_red(f"❌ CRITICAL - UNEXPECTED_POSITION: Found {quantity} shares of {symbol} (not in configured pair)")
     
     def generate_trade_id(self) -> str:
         """Generate a unique trade ID."""
