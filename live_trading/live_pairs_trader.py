@@ -804,11 +804,33 @@ class LivePairsTrader:
                     holding_stock = "none"
                 self.observability.metrics.record_holding_indicator(holding_stock)
                 
+                # Build position info for logging
+                if holding_stock == "ticker_a":
+                    position_info = f"{self.ticker_a} x{self._shares_held}"
+                elif holding_stock == "ticker_b":
+                    position_info = f"{self.ticker_b} x{self._shares_held}"
+                else:
+                    position_info = "CASH"
+                
+                # Build trigger deviation indicator - show what we're WAITING for
+                if holding_stock == "ticker_a":
+                    # Holding V (ticker_a), waiting for positive deviation to swap to MA
+                    trigger_dev = f"over +{self.trigger_percent}%"
+                elif holding_stock == "ticker_b":
+                    # Holding MA (ticker_b), waiting for negative deviation to swap to V
+                    trigger_dev = f"under -{self.trigger_percent}%"
+                else:
+                    # In cash - show based on which stock we'll buy
+                    if snapshot.deviation_percent > 0:
+                        trigger_dev = f"under -{self.trigger_percent}%"
+                    else:
+                        trigger_dev = f"over +{self.trigger_percent}%"
+                
                 # Print poll cycle summary in verbose
                 logger.verbose(
-                    f"State: {self.state_machine.state_name} ({holding_stock}) | "
+                    f"State: {self.state_machine.state_name} ({position_info}) | "
                     f"Ratio: {snapshot.ratio:.5f} | MA: {snapshot.ratio_ma:.5f} | "
-                    f"Dev: {snapshot.deviation_percent:+.3f}% | Prox: {trigger_proximity:.2f}"
+                    f"Dev: {snapshot.deviation_percent:+.3f}% | Trig dev: {trigger_dev} | Prox: {trigger_proximity:.2f}"
                 )
                 
                 # Check market hours and log transitions
@@ -954,9 +976,13 @@ class LivePairsTrader:
                     self.observability.logger.log_heartbeat(
                         state=self.state_machine.state_name,
                         holding_stock=holding_stock,
+                        shares_held=self._shares_held,
+                        ticker_a_symbol=self.ticker_a,
+                        ticker_b_symbol=self.ticker_b,
                         ratio=snapshot.ratio,
                         ratio_ma=snapshot.ratio_ma,
                         deviation_pct=snapshot.deviation_percent,
+                        trigger_percent=self.trigger_percent,
                         trigger_proximity=trigger_proximity,
                         portfolio_value=portfolio_value,
                         trades_today=self.state_machine.data.trades_today,

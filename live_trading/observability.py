@@ -583,9 +583,13 @@ class TradingLogger:
         self,
         state: str,
         holding_stock: str,
+        shares_held: int,
+        ticker_a_symbol: str,
+        ticker_b_symbol: str,
         ratio: float,
         ratio_ma: float,
         deviation_pct: float,
+        trigger_percent: float,
         trigger_proximity: float,
         portfolio_value: float,
         trades_today: int,
@@ -597,16 +601,39 @@ class TradingLogger:
         This is the primary debugging log - grep for HEARTBEAT to see
         the system's vital signs over time.
         """
+        # Build position string
+        if holding_stock == "ticker_a":
+            position_str = f"{ticker_a_symbol} x{shares_held}"
+        elif holding_stock == "ticker_b":
+            position_str = f"{ticker_b_symbol} x{shares_held}"
+        else:
+            position_str = "CASH (no position)"
+        
+        # Build trigger deviation indicator - show what we're WAITING for
+        if holding_stock == "ticker_a":
+            # Holding ticker_a, waiting for positive deviation
+            trigger_dev = f"over +{trigger_percent}%"
+        elif holding_stock == "ticker_b":
+            # Holding ticker_b, waiting for negative deviation
+            trigger_dev = f"under -{trigger_percent}%"
+        else:
+            # In cash - show based on which stock we'll buy
+            if deviation_pct > 0:
+                trigger_dev = f"under -{trigger_percent}%"
+            else:
+                trigger_dev = f"over +{trigger_percent}%"
+        
         self.info(
-            f"HEARTBEAT: state={state}, holding={holding_stock}, "
+            f"HEARTBEAT: state={state}, position={position_str}, "
             f"ratio={ratio:.5f}, MA={ratio_ma:.5f}, dev={deviation_pct:+.3f}%, "
-            f"proximity={trigger_proximity:.2f}, value=${portfolio_value:.2f}, "
-            f"trades={trades_today}, mins_to_close={minutes_until_close}",
+            f"trigger_dev={trigger_dev}, proximity={trigger_proximity:.2f}, "
+            f"value=${portfolio_value:.2f}, trades={trades_today}, mins_to_close={minutes_until_close}",
             state=state,
-            holding_stock=holding_stock,
+            position=position_str,
             ratio=ratio,
             ratio_ma=ratio_ma,
             deviation_pct=deviation_pct,
+            trigger_dev=trigger_dev,
             trigger_proximity=trigger_proximity,
             portfolio_value=portfolio_value,
             trades_today=trades_today,
@@ -616,10 +643,10 @@ class TradingLogger:
         # Print formatted heartbeat to terminal
         logger.info("═" * 60)
         logger.info(f"💓 HEARTBEAT {datetime.now().strftime('%H:%M:%S')}")
-        logger.info(f"  State: {state} | Holding: {holding_stock} | Trades Today: {trades_today}")
+        logger.info(f"  State: {state} | Position: {position_str} | Trades Today: {trades_today}")
         logger.info(f"  Ratio: {ratio:.5f} | MA: {ratio_ma:.5f} | Deviation: {deviation_pct:+.3f}%")
-        logger.info(f"  Trigger Proximity: {trigger_proximity:.2f} | Portfolio: ${portfolio_value:.2f}")
-        logger.info(f"  Minutes to Close: {minutes_until_close}")
+        logger.info(f"  Trigger Dev: {trigger_dev} | Proximity: {trigger_proximity:.2f}")
+        logger.info(f"  Portfolio: ${portfolio_value:.2f} | Minutes to Close: {minutes_until_close}")
         logger.info("═" * 60)
     
     def log_flip_complete(
