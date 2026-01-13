@@ -1,0 +1,37 @@
+{
+  "Quotes": [
+    {
+      "Symbol": "MA",
+      "Open": "558.95001",
+      "High": "558.95001",
+      "Low": "533.70001",
+      "PreviousClose": "566.28003",
+      "Last": "547.6799",
+      "Ask": "547.68",
+      "AskSize": "40",
+      "Bid": "547.4",
+      "BidSize": "80",
+      "NetChange": "-18.60013",
+      "NetChangePct": "-3.28461697651602",
+      "High52Week": "601.77002",
+      "High52WeekTimestamp": "2025-08-22T00:00:00Z",
+      "Low52Week": "465.59",
+      "Low52WeekTimestamp": "2025-04-07T00:00:00Z",
+      "Volume": "6146789",
+      "PreviousVolume": "3486353",
+      "Close": "547.67987",
+      "DailyOpenInterest": "0",
+      "TradeTime": "2026-01-13T19:40:17Z",
+      "TickSizeTier": "0",
+      "MarketFlags": {
+        "IsDelayed": false,
+        "IsHardToBorrow": false,
+        "IsBats": false,
+        "IsHalted": false
+      },
+      "LastSize": "578",
+      "LastVenue": "NASDAQ",
+      "VWAP": "541.982166355884"
+    }
+  ]
+}

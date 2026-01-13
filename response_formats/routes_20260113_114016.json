@@ -1,0 +1,276 @@
+{
+  "Routes": [
+    {
+      "Id": "AMEX",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "AMEX"
+    },
+    {
+      "Id": "ARCA",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "ARCX"
+    },
+    {
+      "Id": "BATS",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "BATS"
+    },
+    {
+      "Id": "BYX",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "BYX"
+    },
+    {
+      "Id": "CSFB",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "CSFB"
+    },
+    {
+      "Id": "EDGA",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "EDGA"
+    },
+    {
+      "Id": "EDGX",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "EDGX"
+    },
+    {
+      "Id": "IEXG",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "IEX"
+    },
+    {
+      "Id": "NQBX",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "NQBX"
+    },
+    {
+      "Id": "NSDQ",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "NSDQ"
+    },
+    {
+      "Id": "NYSE",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "NYSE"
+    },
+    {
+      "Id": "TWAP",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "TWAP-ALGO"
+    },
+    {
+      "Id": "VWAP",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "VWAP-ALGO"
+    },
+    {
+      "Id": "WEEB",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "SweepPI-ALGO"
+    },
+    {
+      "Id": "WEES",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "Sweep-ALGO"
+    },
+    {
+      "Id": "POV",
+      "AssetTypes": [
+        "STOCK"
+      ],
+      "Name": "POV-ALGO"
+    },
+    {
+      "Id": "SPHR",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "SPHR"
+    },
+    {
+      "Id": "WEXB",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "SweepPI-ALGO"
+    },
+    {
+      "Id": "WEXS",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "Sweep-ALGO"
+    },
+    {
+      "Id": "XNDQ",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "XNDQ"
+    },
+    {
+      "Id": "PHLX",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "PHLX"
+    },
+    {
+      "Id": "NYOP",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "NYSE Arca"
+    },
+    {
+      "Id": "ISE",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "ISE"
+    },
+    {
+      "Id": "MCRY",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "ISE Mercury"
+    },
+    {
+      "Id": "MIAX",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "MIAX"
+    },
+    {
+      "Id": "MPRL",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "MPRL"
+    },
+    {
+      "Id": "MXOP",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "MXOP"
+    },
+    {
+      "Id": "NOBO",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "Nasdaq BX"
+    },
+    {
+      "Id": "EMLD",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "EMLD"
+    },
+    {
+      "Id": "GMNI",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "GMNI"
+    },
+    {
+      "Id": "EDGO",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "EDGO"
+    },
+    {
+      "Id": "C2",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "C2"
+    },
+    {
+      "Id": "CBOE",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "CBOE"
+    },
+    {
+      "Id": "BOX",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "BOX"
+    },
+    {
+      "Id": "BAOP",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "BATS"
+    },
+    {
+      "Id": "AMOP",
+      "AssetTypes": [
+        "STOCKOPTION",
+        "INDEXOPTION"
+      ],
+      "Name": "NYSE Amex"
+    }
+  ]
+}

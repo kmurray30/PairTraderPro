@@ -1,0 +1,25 @@
+{
+  "Accounts": [
+    {
+      "AccountID": "SIM2977786F",
+      "Currency": "USD",
+      "Status": "Active",
+      "AccountType": "Futures"
+    },
+    {
+      "AccountID": "SIM2977785M",
+      "Currency": "USD",
+      "Status": "Active",
+      "AccountType": "Margin",
+      "AccountDetail": {
+        "IsStockLocateEligible": true,
+        "EnrolledInRegTProgram": true,
+        "RequiresBuyingPowerWarning": true,
+        "CryptoEnabled": false,
+        "DayTradingQualified": true,
+        "OptionApprovalLevel": 5,
+        "PatternDayTrader": false
+      }
+    }
+  ]
+}

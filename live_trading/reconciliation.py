@@ -490,10 +490,17 @@ class Reconciler:
         try:
             balances = self.api.account.get_balances(self.account_id)
             
+            # Extract the first balance object from the Balances array
+            if 'Balances' in balances and len(balances['Balances']) > 0:
+                balance = balances['Balances'][0]
+            else:
+                logger.error("No balance data in API response")
+                return 0.0
+            
             # Try various fields that might contain buying power
-            buying_power = balances.get('BuyingPower', 0)
+            buying_power = balance.get('BuyingPower', 0)
             if buying_power == 0:
-                buying_power = balances.get('CashBalance', 0)
+                buying_power = balance.get('CashBalance', 0)
             
             api_buying_power = float(buying_power)
             
@@ -520,13 +527,20 @@ class Reconciler:
         try:
             balances = self.api.account.get_balances(self.account_id)
             
+            # Extract the first balance object from the Balances array
+            if 'Balances' in balances and len(balances['Balances']) > 0:
+                balance = balances['Balances'][0]
+            else:
+                logger.error("No balance data in API response")
+                return 0.0
+            
             # Try various fields
-            equity = balances.get('Equity', 0)
+            equity = balance.get('Equity', 0)
             if equity == 0:
-                equity = balances.get('AccountBalance', 0)
+                equity = balance.get('AccountBalance', 0)
             if equity == 0:
                 # Fall back to cash + position values
-                cash = float(balances.get('CashBalance', 0))
+                cash = float(balance.get('CashBalance', 0))
                 positions = self.fetch_positions()
                 position_value = sum(p.market_value for p in positions)
                 equity = cash + position_value

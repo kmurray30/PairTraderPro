@@ -1,0 +1,1 @@
+trade_id,timestamp,action,symbol,quantity,expected_price,actual_price,slippage_pct,portfolio_value_before,portfolio_value_after,period_return_pct,compound_return_all_time,algo_return_7d,algo_return_60d,relative_perf_7d,relative_perf_60d,relative_perf_all_time

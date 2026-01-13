@@ -1,0 +1,20 @@
+{
+  "BODBalances": [
+    {
+      "AccountID": "SIM2977785M",
+      "AccountType": "Margin",
+      "BalanceDetail": {
+        "AccountBalance": "1000000",
+        "CashAvailableToWithdraw": "0",
+        "DayTradingMarginableBuyingPower": "4000000",
+        "DayTrades": "0",
+        "Equity": "1000000",
+        "NetCash": "1000000",
+        "OptionBuyingPower": "1000000",
+        "OptionValue": "0",
+        "OvernightBuyingPower": "2000000"
+      }
+    }
+  ],
+  "Errors": []
+}

@@ -16,6 +16,7 @@ CLI usage:
 
 from .utils import to_float
 from .setup_api import setup_api
+from .get_accounts import get_accounts
 from .get_bars import get_bars
 from .get_symbol_details import get_symbol_details
 from .get_quote import get_quote
@@ -36,6 +37,7 @@ from .stream_positions_orders import stream_positions_orders
 __all__ = [
     'to_float',
     'setup_api',
+    'get_accounts',
     'get_bars',
     'get_symbol_details',
     'get_quote',

@@ -1,0 +1,29 @@
+{
+  "Balances": [
+    {
+      "AccountID": "SIM2977785M",
+      "AccountType": "Margin",
+      "CashBalance": "1000000",
+      "BuyingPower": "4000000",
+      "Equity": "1000000",
+      "MarketValue": "0",
+      "TodaysProfitLoss": "0",
+      "UnclearedDeposit": "0",
+      "BalanceDetail": {
+        "CostOfPositions": "0",
+        "DayTrades": "0",
+        "MaintenanceRate": "0",
+        "OptionBuyingPower": "1000000",
+        "OptionsMarketValue": "0",
+        "OvernightBuyingPower": "2000000",
+        "RequiredMargin": "0",
+        "UnsettledFunds": "0",
+        "DayTradeExcess": "1000000",
+        "RealizedProfitLoss": "0",
+        "UnrealizedProfitLoss": "0"
+      },
+      "Commission": "0"
+    }
+  ],
+  "Errors": []
+}

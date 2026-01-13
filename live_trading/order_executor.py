@@ -174,13 +174,20 @@ class OrderExecutor:
         try:
             balances = self.api.account.get_balances(self.account_id)
             
+            # Extract the first balance object from the Balances array
+            if 'Balances' in balances and len(balances['Balances']) > 0:
+                balance = balances['Balances'][0]
+            else:
+                logger.error("No balance data in API response")
+                return 0.0
+            
             # The specific field depends on account type
             # Try several common fields
-            buying_power = balances.get('BuyingPower', 0)
+            buying_power = balance.get('BuyingPower', 0)
             if buying_power == 0:
-                buying_power = balances.get('CashBalance', 0)
+                buying_power = balance.get('CashBalance', 0)
             if buying_power == 0:
-                buying_power = balances.get('EquityWithLoanValue', 0)
+                buying_power = balance.get('EquityWithLoanValue', 0)
             
             api_buying_power = float(buying_power)
             
