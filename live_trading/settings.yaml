@@ -120,6 +120,13 @@ retry_backoff_seconds: 2
 # Example: 10 means no new swaps after 3:50 PM ET
 swap_cutoff_minutes_before_close: 10
 
+# Enable 24-hour trading mode (bypass market hours restrictions)
+# When true, ignores market hours and swap cutoff checks
+# Useful for trading assets that trade 24/7 (crypto, futures)
+# When false, respects standard market hours (9:30 AM - 4:00 PM ET)
+# Default: false
+enable_24h_trading: true
+
 # -----------------------------------------------------------------------------
 # Allocated Cash for Trading (Optional Demo/Testing Limit)
 # -----------------------------------------------------------------------------

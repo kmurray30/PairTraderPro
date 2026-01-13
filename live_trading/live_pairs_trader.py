@@ -136,6 +136,7 @@ class LivePairsTrader:
         self.slippage_settings = self.settings.get('slippage', {})
         self.enforce_one_trade_per_day = self.settings.get('enforce_one_trade_per_day', True)
         self.allocated_cash = self.settings.get('allocated_cash', 0)
+        self.enable_24h_trading = self.settings.get('enable_24h_trading', False)
         
         # Get environment setting
         self.environment = self.settings.get('environment', 'sim')
@@ -152,6 +153,7 @@ class LivePairsTrader:
         logger.info(f"  MA Window: {self.ma_window} minutes")
         logger.info(f"  Daily Trade Limit: {self.trades_per_day_limit}")
         logger.info(f"  Swap Cutoff: {self.swap_cutoff_minutes} minutes before close")
+        logger.info(f"  24h Trading: {self.enable_24h_trading}")
         logger.info(f"  Enforce 1 Trade/Day: {self.enforce_one_trade_per_day}")
         if self.allocated_cash > 0:
             logger.info(f"  Allocated Cash: ${self.allocated_cash:,.2f}")
@@ -258,12 +260,16 @@ class LivePairsTrader:
     
     def _is_market_open(self) -> bool:
         """Check if market is currently open (9:30 AM - 4:00 PM ET)."""
+        if self.enable_24h_trading:
+            return True
         now_et = datetime.now(EASTERN_TZ)
         current_time = now_et.time()
         return MARKET_OPEN <= current_time < MARKET_CLOSE
     
     def _is_past_swap_cutoff(self) -> bool:
         """Check if we're past the swap cutoff time."""
+        if self.enable_24h_trading:
+            return False
         now_et = datetime.now(EASTERN_TZ)
         # Calculate cutoff time
         cutoff_hour = 15  # 3 PM
