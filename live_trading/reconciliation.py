@@ -27,8 +27,8 @@ from enum import Enum
 
 from .state_machine import TradingState, StockHeld, StateData
 
-# Import terminal color utilities
-from .terminal_colors import print_grey, print_white, print_yellow, print_red, format_currency
+# Import centralized logger
+from .logger import logger
 
 
 @dataclass
@@ -184,16 +184,16 @@ class Reconciler:
             
             # Print positions found
             if positions:
-                print_white(f"Positions fetched: {len(positions)} position(s)")
+                logger.info(f"Positions fetched: {len(positions)} position(s)")
                 for pos in positions:
-                    print_grey(f"  {pos.symbol}: {pos.quantity} shares @ {format_currency(pos.average_price)}, Value: {format_currency(pos.market_value)}")
+                    logger.verbose(f"  {pos.symbol}: {pos.quantity} shares @ ${pos.average_price:.2f}, Value: ${pos.market_value:.2f}")
             else:
-                print_grey("Positions fetched: No positions found")
+                logger.verbose("Positions fetched: No positions found")
             
             return positions
             
         except Exception as exception:
-            print_red(f"ERROR fetching positions: {exception}")
+            logger.error(f"Failed to fetch positions: {exception}")
             return []
     
     def fetch_pending_orders(self) -> List[PendingOrder]:
@@ -224,16 +224,16 @@ class Reconciler:
             
             # Print pending orders found
             if pending_orders:
-                print_yellow(f"⚠️  Pending orders found: {len(pending_orders)} order(s)")
+                logger.warning(f"⚠️  Pending orders found: {len(pending_orders)} order(s)")
                 for order in pending_orders:
-                    print_yellow(f"  Order {order.order_id}: {order.action} {order.quantity} {order.symbol} ({order.status})")
+                    logger.warning(f"  Order {order.order_id}: {order.action} {order.quantity} {order.symbol} ({order.status})")
             else:
-                print_grey("No pending orders")
+                logger.verbose("No pending orders")
             
             return pending_orders
             
         except Exception as exception:
-            print_red(f"ERROR fetching orders: {exception}")
+            logger.error(f"Failed to fetch orders: {exception}")
             return []
     
     def check_state(self) -> ReconciliationResult:
@@ -247,7 +247,7 @@ class Reconciler:
         Returns:
             ReconciliationResult with recommended state and any actions needed
         """
-        print_white("🔍 Running state reconciliation check...")
+        logger.info("🔍 Running state reconciliation check...")
         positions = self.fetch_positions()
         pending_orders = self.fetch_pending_orders()
         
@@ -270,16 +270,16 @@ class Reconciler:
         if unexpected_positions:
             # Log warning but don't fail - just ignore other positions
             for pos in unexpected_positions:
-                print_yellow(f"⚠️  WARNING: Found position in {pos.symbol} (not in trading pair)")
+                logger.warning(f"⚠️  WARNING: Found position in {pos.symbol} (not in trading pair)")
         
         # Determine state based on what we found
         result = self._determine_state(pair_positions, pair_pending, positions, pending_orders)
         
         # Print result
         if result.is_consistent:
-            print_white(f"✓ State check complete: Recommended state = {result.recommended_state.name}, Stock = {result.current_stock.value}, Action = {result.action_needed.name}")
+            logger.info(f"✓ State check complete: Recommended state = {result.recommended_state.name}, Stock = {result.current_stock.value}, Action = {result.action_needed.name}")
         else:
-            print_yellow(f"⚠️  State inconsistency: {result.error_message}")
+            logger.warning(f"⚠️  State inconsistency: {result.error_message}")
         
         return result
     
@@ -503,11 +503,11 @@ class Reconciler:
             else:
                 final_buying_power = api_buying_power
             
-            print_grey(f"Buying power check: {format_currency(final_buying_power)}")
+            logger.verbose(f"Buying power check: ${final_buying_power:.2f}")
             return final_buying_power
             
         except Exception as exception:
-            print_red(f"ERROR getting buying power: {exception}")
+            logger.error(f"Failed to get buying power: {exception}")
             return 0.0
     
     def get_portfolio_value(self) -> float:
@@ -532,10 +532,10 @@ class Reconciler:
                 equity = cash + position_value
             
             portfolio_value = float(equity)
-            print_grey(f"Portfolio value check: {format_currency(portfolio_value)}")
+            logger.verbose(f"Portfolio value check: ${portfolio_value:.2f}")
             return portfolio_value
             
         except Exception as exception:
-            print_red(f"ERROR getting portfolio value: {exception}")
+            logger.error(f"Failed to get portfolio value: {exception}")
             return 0.0
 

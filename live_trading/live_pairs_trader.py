@@ -51,8 +51,8 @@ from .performance_tracker import PerformanceTracker, SlippageTracker
 from .reconciliation import Reconciler, RecoveryAction
 from .observability import Observability
 
-# Import terminal color utilities
-from .terminal_colors import print_grey, print_white, print_yellow, print_red, format_currency, format_percent, format_ratio
+# Import centralized logger
+from .logger import logger, set_log_level_from_config
 
 
 # Eastern timezone for market hours
@@ -110,12 +110,16 @@ class LivePairsTrader:
     
     def __init__(self):
         """Initialize the live pairs trader."""
-        print("=" * 60)
-        print("Live Pairs Trading Algorithm")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("Live Pairs Trading Algorithm")
+        logger.info("=" * 60)
         
         # Load configuration
         self.settings = load_settings()
+        
+        # Set log level from config
+        log_level = self.settings.get('log_level', 2)  # Default to INFO
+        set_log_level_from_config(log_level)
         
         # Extract key settings
         self.ticker_a = self.settings['ticker_a']
@@ -140,36 +144,36 @@ class LivePairsTrader:
         if self.environment not in ('sim', 'prod'):
             raise ValueError(f"Invalid environment '{self.environment}'. Must be 'sim' or 'prod'.")
         
-        print(f"\nConfiguration:")
-        print(f"  Environment: {self.environment.upper()}")
-        print(f"  Ticker A: {self.ticker_a}")
-        print(f"  Ticker B: {self.ticker_b}")
-        print(f"  Trigger: {self.trigger_percent}%")
-        print(f"  MA Window: {self.ma_window} minutes")
-        print(f"  Daily Trade Limit: {self.trades_per_day_limit}")
-        print(f"  Swap Cutoff: {self.swap_cutoff_minutes} minutes before close")
-        print(f"  Enforce 1 Trade/Day: {self.enforce_one_trade_per_day}")
+        logger.info("\nConfiguration:")
+        logger.info(f"  Environment: {self.environment.upper()}")
+        logger.info(f"  Ticker A: {self.ticker_a}")
+        logger.info(f"  Ticker B: {self.ticker_b}")
+        logger.info(f"  Trigger: {self.trigger_percent}%")
+        logger.info(f"  MA Window: {self.ma_window} minutes")
+        logger.info(f"  Daily Trade Limit: {self.trades_per_day_limit}")
+        logger.info(f"  Swap Cutoff: {self.swap_cutoff_minutes} minutes before close")
+        logger.info(f"  Enforce 1 Trade/Day: {self.enforce_one_trade_per_day}")
         if self.allocated_cash > 0:
-            print(f"  Allocated Cash: ${self.allocated_cash:,.2f}")
+            logger.info(f"  Allocated Cash: ${self.allocated_cash:,.2f}")
         else:
-            print(f"  Allocated Cash: Full account balance")
+            logger.info(f"  Allocated Cash: Full account balance")
         
         # =====================================================================
         # Environment Selection
         # =====================================================================
         if self.environment == 'prod':
-            print("\n" + "=" * 60)
-            print("⚠️  WARNING: PRODUCTION MODE - REAL MONEY AT RISK ⚠️")
-            print("=" * 60)
-            print("You are about to run the algorithm with REAL money.")
-            print("Make sure you understand the risks and have tested in sim mode.")
-            print("=" * 60)
+            logger.warning("\n" + "=" * 60)
+            logger.warning("⚠️  WARNING: PRODUCTION MODE - REAL MONEY AT RISK ⚠️")
+            logger.warning("=" * 60)
+            logger.warning("You are about to run the algorithm with REAL money.")
+            logger.warning("Make sure you understand the risks and have tested in sim mode.")
+            logger.warning("=" * 60)
         else:
-            print("\n✓ SIMULATION MODE - No real money at risk")
+            logger.info("\n✓ SIMULATION MODE - No real money at risk")
         
         self.api = TradeStationAPI(self.environment)
         self.account_id = self.api.config.account_id
-        print(f"  Account: {self.account_id}")
+        logger.info(f"  Account: {self.account_id}")
         
         # Initialize observability (metrics, logging, CSV)
         self.observability = Observability(
@@ -236,7 +240,7 @@ class LivePairsTrader:
         # Track swap cutoff state for event logging
         self._was_past_cutoff: bool = False
         
-        print("\nInitialization complete.")
+        logger.info("\nInitialization complete.")
     
     def _on_state_transition(
         self,
@@ -346,33 +350,33 @@ class LivePairsTrader:
     
     def _bootstrap_moving_average(self) -> bool:
         """Bootstrap the moving average from historical data."""
-        print("\n" + "=" * 60)
-        print("Bootstrapping Moving Average...")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("Bootstrapping Moving Average...")
+        logger.info("=" * 60)
         
         success = self.price_tracker.bootstrap_moving_average()
         
         if success:
-            print("MA bootstrap successful!")
+            logger.info("MA bootstrap successful!")
             return True
         else:
-            print("ERROR: MA bootstrap failed!")
+            logger.error("MA bootstrap failed!")
             return False
     
     def _recover_state(self) -> bool:
         """Recover state from API on startup."""
-        print("\n" + "=" * 60)
-        print("Recovering State from API...")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("Recovering State from API...")
+        logger.info("=" * 60)
         
         result = self.reconciler.check_state()
         
-        print(f"  Recommended state: {result.recommended_state.name}")
-        print(f"  Current stock: {result.current_stock.value}")
-        print(f"  Action needed: {result.action_needed.name}")
+        logger.info(f"  Recommended state: {result.recommended_state.name}")
+        logger.info(f"  Current stock: {result.current_stock.value}")
+        logger.info(f"  Action needed: {result.action_needed.name}")
         
         if result.error_message:
-            print(f"  ERROR: {result.error_message}")
+            logger.error(f"  ERROR: {result.error_message}")
         
         # Update state machine based on recovery result
         if result.action_needed == RecoveryAction.ERROR:
@@ -390,7 +394,7 @@ class LivePairsTrader:
             # Get current position quantity
             stock_name = "ticker_a" if result.current_stock == StockHeld.TICKER_A else "ticker_b"
             self._shares_held = self.reconciler.get_position_quantity(stock_name)
-            print(f"  Shares held: {self._shares_held}")
+            logger.info(f"  Shares held: {self._shares_held}")
             
         elif result.recommended_state == TradingState.CASH:
             self.state_machine.transition_to(
@@ -408,7 +412,7 @@ class LivePairsTrader:
             if result.pending_orders:
                 order = result.pending_orders[0]
                 self.state_machine.set_pending_order(order.order_id)
-                print(f"  Pending order: {order.order_id} ({order.action} {order.symbol})")
+                logger.info(f"  Pending order: {order.order_id} ({order.action} {order.symbol})")
         
         # Initialize performance tracking period
         portfolio_value = self.reconciler.get_portfolio_value()
@@ -437,7 +441,7 @@ class LivePairsTrader:
             price = snapshot.ticker_b_quote.last
             stock_enum = StockHeld.TICKER_B
         
-        print(f"\nInitiating initial buy: {symbol} (undervalued)")
+        logger.info(f"\nInitiating initial buy: {symbol} (undervalued)")
         
         # Transition to PENDING_BUY
         self.state_machine.transition_to(
@@ -546,7 +550,7 @@ class LivePairsTrader:
             buy_price = snapshot.ticker_b_quote.last
             new_stock = StockHeld.TICKER_B
         
-        print(f"\nExecuting swap: {sell_symbol} -> {buy_symbol}")
+        logger.info(f"\nExecuting swap: {sell_symbol} -> {buy_symbol}")
         
         # Log trigger
         ratio, ratio_ma = self.price_tracker.get_current_ratio_ma()
@@ -698,7 +702,7 @@ class LivePairsTrader:
             )
             
             # Print performance table
-            print("\n" + self.performance_tracker.format_metrics_table(metrics))
+            logger.info("\n" + self.performance_tracker.format_metrics_table(metrics))
             
             # Count trade toward daily limit
             self.state_machine.increment_trades_today()
@@ -743,9 +747,9 @@ class LivePairsTrader:
     
     def _run_main_loop(self) -> None:
         """Main trading loop."""
-        print("\n" + "=" * 60)
-        print("Starting Main Trading Loop")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("Starting Main Trading Loop")
+        logger.info("=" * 60)
         
         while True:
             try:
@@ -754,7 +758,7 @@ class LivePairsTrader:
                 
                 # Skip if in error state (frozen)
                 if self.state_machine.is_in_error():
-                    print_red("⚠️  Algorithm is in ERROR state - frozen")
+                    logger.error("⚠️  Algorithm is in ERROR state - frozen")
                     time.sleep(self.poll_interval)
                     continue
                 
@@ -762,7 +766,7 @@ class LivePairsTrader:
                 snapshot = self.price_tracker.get_price_snapshot()
                 
                 if not snapshot:
-                    print_yellow("WARNING: Failed to get price snapshot")
+                    logger.warning("Failed to get price snapshot")
                     time.sleep(self.poll_interval)
                     continue
                 
@@ -800,11 +804,11 @@ class LivePairsTrader:
                     holding_stock = "none"
                 self.observability.metrics.record_holding_indicator(holding_stock)
                 
-                # Print poll cycle summary in grey
-                print_grey(
+                # Print poll cycle summary in verbose
+                logger.verbose(
                     f"State: {self.state_machine.state_name} ({holding_stock}) | "
-                    f"Ratio: {format_ratio(snapshot.ratio)} | MA: {format_ratio(snapshot.ratio_ma)} | "
-                    f"Dev: {format_percent(snapshot.deviation_percent)} | Prox: {trigger_proximity:.2f}"
+                    f"Ratio: {snapshot.ratio:.5f} | MA: {snapshot.ratio_ma:.5f} | "
+                    f"Dev: {snapshot.deviation_percent:+.3f}% | Prox: {trigger_proximity:.2f}"
                 )
                 
                 # Check market hours and log transitions
@@ -818,7 +822,7 @@ class LivePairsTrader:
                 self._was_market_open = market_open
                 
                 if not market_open:
-                    print_grey("Market is closed")
+                    logger.verbose("Market is closed")
                     time.sleep(self.poll_interval)
                     continue
                 
@@ -837,7 +841,7 @@ class LivePairsTrader:
                 
                 if current_state == TradingState.CASH:
                     # In cash - execute initial buy
-                    print_white("State: CASH - evaluating initial buy")
+                    logger.info("State: CASH - evaluating initial buy")
                     min_price = min(snapshot.ticker_a_quote.last, snapshot.ticker_b_quote.last)
                     if self._check_sufficient_buying_power(min_price):
                         self._execute_initial_buy(snapshot)
@@ -873,13 +877,13 @@ class LivePairsTrader:
                     # Print what we're evaluating
                     if should_swap:
                         if can_trade and not past_cutoff:
-                            print_white(f"Trigger conditions met: Executing swap {direction}")
+                            logger.info(f"Trigger conditions met: Executing swap {direction}")
                         elif not can_trade:
-                            print_grey(f"Trigger met but daily limit reached ({trades_today} trades)")
+                            logger.verbose(f"Trigger met but daily limit reached ({trades_today} trades)")
                         elif past_cutoff:
-                            print_grey(f"Trigger met but past swap cutoff")
+                            logger.verbose(f"Trigger met but past swap cutoff")
                     else:
-                        print_grey(f"Holding {stock_name}, waiting for trigger")
+                        logger.verbose(f"Holding {stock_name}, waiting for trigger")
                     
                     if should_swap and can_trade and not past_cutoff:
                         self._execute_swap(snapshot, direction)
@@ -891,13 +895,13 @@ class LivePairsTrader:
                 
                 elif current_state == TradingState.HOLDING_DAILY_LIMIT:
                     # Just wait - daily reset will transition us back
-                    print_grey("State: HOLDING_DAILY_LIMIT - waiting for daily reset")
+                    logger.verbose("State: HOLDING_DAILY_LIMIT - waiting for daily reset")
                 
                 elif current_state in (TradingState.PENDING_BUY, TradingState.PENDING_SELL):
                     # Check order status
                     order_id = self.state_machine.data.pending_order_id
                     if order_id:
-                        print_grey(f"State: {current_state.name} - checking order {order_id}")
+                        logger.verbose(f"State: {current_state.name} - checking order {order_id}")
                         status, order_data = self.order_executor.get_order_status(order_id)
                         
                         if status == OrderStatus.FILLED:
@@ -963,11 +967,11 @@ class LivePairsTrader:
                 time.sleep(self.poll_interval)
                 
             except KeyboardInterrupt:
-                print("\n\nShutting down...")
+                logger.info("\n\nShutting down...")
                 break
             
             except Exception as exception:
-                print_red(f"ERROR in main loop: {exception}")
+                logger.error(f"ERROR in main loop: {exception}")
                 self.observability.logger.error(
                     f"Main loop error: {exception}",
                     state=self.state_machine.state_name
@@ -980,12 +984,12 @@ class LivePairsTrader:
         try:
             # Step 1: Bootstrap moving average
             if not self._bootstrap_moving_average():
-                print("FATAL: Failed to bootstrap MA. Exiting.")
+                logger.error("FATAL: Failed to bootstrap MA. Exiting.")
                 return
             
             # Step 2: Recover state from API
             if not self._recover_state():
-                print("FATAL: Failed to recover state. Exiting.")
+                logger.error("FATAL: Failed to recover state. Exiting.")
                 return
             
             # Step 3: Enter main loop
@@ -993,10 +997,10 @@ class LivePairsTrader:
             
         finally:
             # Cleanup
-            print("\nFlushing metrics and logs...")
+            logger.info("\nFlushing metrics and logs...")
             self.observability.flush()
             self.observability.shutdown()
-            print("Shutdown complete.")
+            logger.info("Shutdown complete.")
 
 
 def main():

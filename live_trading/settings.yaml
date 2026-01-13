@@ -42,7 +42,7 @@ ticker_b: "MA"     # Second stock in the pair (denominator of ratio)
 
 # Trigger threshold: minimum % deviation from MA to initiate a swap
 # Example: 0.4 means swap when ratio is 0.4% above or below MA
-trigger_percent: 0.4
+trigger_percent: 0.1
 
 # Moving average window in minutes
 # The algorithm calculates MA over this many 1-minute bars
@@ -52,7 +52,7 @@ moving_average_window_minutes: 240
 # Maximum number of trades (swaps) allowed per trading day
 # Set to 0 for unlimited trades
 # Note: The initial buy counts toward this limit
-trades_per_day_limit: 1
+trades_per_day_limit: 10
 
 # Secondary safety check: enforce a hard limit of 1 trade per day
 # When true, this acts as an additional check on top of trades_per_day_limit
@@ -133,5 +133,22 @@ swap_cutoff_minutes_before_close: 10
 #
 # Example: Set to 1000 to limit trading to $1000 total allocation
 
-allocated_cash: 0
+allocated_cash: 1000
+
+# -----------------------------------------------------------------------------
+# Terminal Logging Verbosity
+# -----------------------------------------------------------------------------
+# Controls how much the algorithm logs to the terminal.
+# This does NOT affect Grafana/Loki logging (always full).
+#
+# Levels:
+#   0 - ERROR:   Only critical errors
+#   1 - WARNING: Errors + warnings
+#   2 - INFO:    Normal operational logs (recommended for trading)
+#   3 - VERBOSE: Includes high-frequency data (every poll cycle)
+#   4 - DEBUG:   Everything including detailed diagnostics
+#
+# Note: VERBOSE (3) will print every second. Use INFO (2) for cleaner output.
+
+log_level: 3  # VERBOSE - everything including detailed diagnostics
 

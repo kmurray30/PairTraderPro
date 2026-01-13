@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 from collections import deque
 import statistics
 
-# Import terminal color utilities
-from .terminal_colors import print_grey, print_white, format_currency, format_ratio
+# Import centralized logger
+from .logger import logger
 
 
 @dataclass
@@ -200,7 +200,7 @@ class PriceTracker:
         bars_b = self._fetch_historical_bars(self.ticker_b, bars_to_fetch)
         
         if not bars_a or not bars_b:
-            print("ERROR: Failed to fetch historical bars")
+            logger.error("Failed to fetch historical bars for MA bootstrap")
             return False
         
         # Match bars by timestamp and calculate ratios
@@ -233,12 +233,10 @@ class PriceTracker:
         if len(self.ratio_history) >= self.ma_window_minutes:
             self._ma_ready = True
             current_ma = statistics.mean(self.ratio_history)
-            print(f"MA bootstrap complete: {len(self.ratio_history)} bars loaded")
-            print(f"Initial MA: {current_ma:.6f}")
+            logger.info(f"MA bootstrap complete: {len(self.ratio_history)} bars loaded, Initial MA: {current_ma:.6f}")
             return True
         else:
-            print(f"WARNING: Only got {len(self.ratio_history)} bars, "
-                  f"need {self.ma_window_minutes}")
+            logger.warning(f"Only got {len(self.ratio_history)} bars, need {self.ma_window_minutes}")
             return False
     
     def _fetch_historical_bars(self, symbol: str, bars_back: int) -> List[Bar]:
@@ -286,7 +284,7 @@ class PriceTracker:
             return bars
             
         except Exception as exception:
-            print(f"ERROR fetching bars for {symbol}: {exception}")
+            logger.error(f"Failed to fetch bars for {symbol}: {exception}")
             return []
     
     def fetch_quotes(self) -> Tuple[Optional[Quote], Optional[Quote]]:
@@ -331,12 +329,12 @@ class PriceTracker:
             
             # Print quote fetch in grey
             if quote_a and quote_b:
-                print_grey(f"Quotes fetched: {self.ticker_a}={format_currency(quote_a.last)}, {self.ticker_b}={format_currency(quote_b.last)}")
+                logger.verbose(f"Quotes: {self.ticker_a}=${quote_a.last:.2f}, {self.ticker_b}=${quote_b.last:.2f}")
             
             return quote_a, quote_b
             
         except Exception as exception:
-            print(f"ERROR fetching quotes: {exception}")
+            logger.error(f"Failed to fetch quotes: {exception}")
             return None, None
     
     def update_moving_average(self) -> bool:
@@ -360,7 +358,7 @@ class PriceTracker:
         
         # Print MA update in white
         new_ma = statistics.mean(self.ratio_history) if len(self.ratio_history) > 0 else current_ratio
-        print_white(f"MA updated: New ratio={format_ratio(current_ratio)}, Updated MA={format_ratio(new_ma)}, History length={len(self.ratio_history)}")
+        logger.info(f"MA updated: Ratio={current_ratio:.5f}, MA={new_ma:.5f}, Window={len(self.ratio_history)}")
         
         return True
     
