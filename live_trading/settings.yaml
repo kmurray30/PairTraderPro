@@ -123,15 +123,25 @@ swap_cutoff_minutes_before_close: 10
 # -----------------------------------------------------------------------------
 # Allocated Cash for Trading (Optional Demo/Testing Limit)
 # -----------------------------------------------------------------------------
-# When set to a positive value, trades will never exceed this amount of cash.
-# This allows running the algorithm with limited capital (e.g., $1000 for testing)
-# while keeping the rest of your account balance untouched.
+# When set to a positive value, the algorithm will always buy stock worth
+# approximately this dollar amount, regardless of account balance or profits.
+# This provides consistent position sizing for testing and demo purposes.
+#
+# How it works:
+#   - When buying: Purchases floor(allocated_cash / stock_price) shares
+#   - When selling: Sells ALL shares (as always)
+#   - Position value will fluctuate with price changes between buys/sells
 #
 # Values:
 #   0 or null - Uses full account buying power (default behavior)
-#   Positive number - Caps trading to this dollar amount (e.g., 1000 for $1000)
+#               Positions grow exponentially with profits
+#   Positive number - Always buys this dollar amount worth of stock
+#                     (e.g., 1000 = always buy ~$1000 worth)
+#                     Positions stay relatively constant in size
 #
-# Example: Set to 1000 to limit trading to $1000 total allocation
+# Example: Set to 1000 to always buy approximately $1000 worth of stock
+#          V at $300 → buy 3 shares ($900)
+#          MA at $500 → buy 2 shares ($1000)
 
 allocated_cash: 1000
 

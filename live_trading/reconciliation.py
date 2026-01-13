@@ -484,9 +484,19 @@ class Reconciler:
         """
         Get current available buying power.
         
+        When allocated_cash is set (> 0), always returns allocated_cash to ensure
+        consistent position sizing. When allocated_cash=0, uses the account's
+        full buying power for exponential growth.
+        
         Returns:
-            Buying power in dollars (capped by allocated_cash if set)
+            Buying power in dollars
         """
+        # If allocated_cash is set, use it directly regardless of API buying power
+        if self.allocated_cash > 0:
+            logger.verbose(f"Buying power check: ${self.allocated_cash:.2f} (allocated_cash mode)")
+            return self.allocated_cash
+        
+        # Otherwise, query API for actual buying power
         try:
             balances = self.api.account.get_balances(self.account_id)
             
@@ -504,14 +514,8 @@ class Reconciler:
             
             api_buying_power = float(buying_power)
             
-            # Apply allocated_cash cap if set
-            if self.allocated_cash > 0:
-                final_buying_power = min(api_buying_power, self.allocated_cash)
-            else:
-                final_buying_power = api_buying_power
-            
-            logger.verbose(f"Buying power check: ${final_buying_power:.2f}")
-            return final_buying_power
+            logger.verbose(f"Buying power check: ${api_buying_power:.2f}")
+            return api_buying_power
             
         except Exception as exception:
             logger.error(f"Failed to get buying power: {exception}")
