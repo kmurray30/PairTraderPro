@@ -473,7 +473,8 @@ class PriceTracker:
         """
         Determine which stock is currently undervalued.
         
-        Used when starting from cash to decide which stock to buy first.
+        Used when starting from cash or cleanup to decide which stock to buy.
+        Uses >= for ties (favors ticker_b at exactly zero deviation).
         
         Args:
             snapshot: Current price snapshot
@@ -482,11 +483,12 @@ class PriceTracker:
             "ticker_a" or "ticker_b" depending on which is undervalued
         """
         # If ratio is below MA, ticker_a is undervalued (buy ticker_a)
-        # If ratio is above MA, ticker_b is undervalued (buy ticker_b)
-        if snapshot.deviation_percent < 0:
-            return "ticker_a"
-        else:
+        # If ratio is at or above MA, ticker_b is undervalued (buy ticker_b)
+        # Uses >= 0 to favor ticker_b in case of exact zero deviation
+        if snapshot.deviation_percent >= 0:
             return "ticker_b"
+        else:
+            return "ticker_a"
     
     def calculate_expected_slippage(self, shares: int, settings: dict) -> float:
         """

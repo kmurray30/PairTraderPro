@@ -161,6 +161,23 @@ class Reconciler:
         self.logger = logger
         self.allocated_cash = allocated_cash
     
+    def _calculate_expected_position_value(self, buying_power: float) -> float:
+        """
+        Calculate expected position value (80% threshold).
+        
+        Args:
+            buying_power: Current available buying power
+        
+        Returns:
+            Expected position value in dollars (80% of allocated or available)
+        """
+        if self.allocated_cash > 0:
+            # Use allocated cash as the reference
+            return self.allocated_cash * 0.80
+        else:
+            # Use 80% of buying power as reference
+            return buying_power * 0.80
+    
     def fetch_positions(self) -> List[Position]:
         """
         Fetch current positions from TradeStation API.
@@ -345,43 +362,85 @@ class Reconciler:
         if ticker_a_position and ticker_b_position:
             return ReconciliationResult(
                 is_consistent=False,
-                recommended_state=TradingState.ERROR,
+                recommended_state=TradingState.CLEANUP_CONFLICT,
                 current_stock=StockHeld.NONE,
                 positions=all_positions,
                 pending_orders=all_pending,
-                action_needed=RecoveryAction.ERROR,
+                action_needed=RecoveryAction.RESOLVE_MISMATCH,
                 error_message=f"Conflicting positions: {ticker_a_position.quantity} {self.ticker_a} "
                              f"AND {ticker_b_position.quantity} {self.ticker_b}"
             )
         
-        # Single position in ticker_a
+        # Single position in ticker_a - check if it's substantial enough
         if ticker_a_position:
-            return ReconciliationResult(
-                is_consistent=True,
-                recommended_state=TradingState.HOLDING_WAITING,
-                current_stock=StockHeld.TICKER_A,
-                positions=all_positions,
-                pending_orders=all_pending,
-                action_needed=RecoveryAction.NONE,
-                error_message=None
-            )
+            buying_power = self.get_buying_power()
+            expected_value = self._calculate_expected_position_value(buying_power)
+            actual_value = ticker_a_position.market_value
+            
+            if actual_value < expected_value:
+                # Partial position - needs cleanup
+                logger.warning(
+                    f"Partial position detected: {self.ticker_a} worth ${actual_value:.2f} "
+                    f"(expected ${expected_value:.2f}, threshold 80%)"
+                )
+                return ReconciliationResult(
+                    is_consistent=True,
+                    recommended_state=TradingState.CLEANUP_MIXED,
+                    current_stock=StockHeld.TICKER_A,
+                    positions=all_positions,
+                    pending_orders=all_pending,
+                    action_needed=RecoveryAction.RESOLVE_MISMATCH,
+                    error_message=None
+                )
+            else:
+                # Clean position
+                return ReconciliationResult(
+                    is_consistent=True,
+                    recommended_state=TradingState.HOLDING_WAITING,
+                    current_stock=StockHeld.TICKER_A,
+                    positions=all_positions,
+                    pending_orders=all_pending,
+                    action_needed=RecoveryAction.NONE,
+                    error_message=None
+                )
         
-        # Single position in ticker_b
+        # Single position in ticker_b - check if it's substantial enough
         if ticker_b_position:
-            return ReconciliationResult(
-                is_consistent=True,
-                recommended_state=TradingState.HOLDING_WAITING,
-                current_stock=StockHeld.TICKER_B,
-                positions=all_positions,
-                pending_orders=all_pending,
-                action_needed=RecoveryAction.NONE,
-                error_message=None
-            )
+            buying_power = self.get_buying_power()
+            expected_value = self._calculate_expected_position_value(buying_power)
+            actual_value = ticker_b_position.market_value
+            
+            if actual_value < expected_value:
+                # Partial position - needs cleanup
+                logger.warning(
+                    f"Partial position detected: {self.ticker_b} worth ${actual_value:.2f} "
+                    f"(expected ${expected_value:.2f}, threshold 80%)"
+                )
+                return ReconciliationResult(
+                    is_consistent=True,
+                    recommended_state=TradingState.CLEANUP_MIXED,
+                    current_stock=StockHeld.TICKER_B,
+                    positions=all_positions,
+                    pending_orders=all_pending,
+                    action_needed=RecoveryAction.RESOLVE_MISMATCH,
+                    error_message=None
+                )
+            else:
+                # Clean position
+                return ReconciliationResult(
+                    is_consistent=True,
+                    recommended_state=TradingState.HOLDING_WAITING,
+                    current_stock=StockHeld.TICKER_B,
+                    positions=all_positions,
+                    pending_orders=all_pending,
+                    action_needed=RecoveryAction.NONE,
+                    error_message=None
+                )
         
-        # No position - we're in cash
+        # No position - cleanup cash
         return ReconciliationResult(
             is_consistent=True,
-            recommended_state=TradingState.CASH,
+            recommended_state=TradingState.CLEANUP_CASH,
             current_stock=StockHeld.NONE,
             positions=all_positions,
             pending_orders=all_pending,

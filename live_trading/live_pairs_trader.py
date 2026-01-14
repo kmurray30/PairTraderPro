@@ -730,6 +730,157 @@ class LivePairsTrader:
             )
             return False
     
+    def _execute_top_up(self, snapshot: PriceSnapshot, stock_name: str) -> bool:
+        """
+        Execute a top-up buy to reach full position size.
+        
+        Used in CLEANUP_MIXED state when current holding is still optimal
+        but position is below 80% threshold.
+        
+        Args:
+            snapshot: Current price snapshot
+            stock_name: "ticker_a" or "ticker_b" (stock to top up)
+        
+        Returns:
+            True if successful, False if failed
+        """
+        if stock_name == "ticker_a":
+            symbol = self.ticker_a
+            price = snapshot.ticker_a_quote.last
+            stock_enum = StockHeld.TICKER_A
+        else:
+            symbol = self.ticker_b
+            price = snapshot.ticker_b_quote.last
+            stock_enum = StockHeld.TICKER_B
+        
+        logger.info(f"\nTopping up position: {symbol}")
+        
+        # Transition to PENDING_BUY
+        self.state_machine.transition_to(
+            TradingState.PENDING_BUY,
+            reason=f"Top up buy of {symbol} (cleanup)"
+        )
+        
+        # Execute the buy
+        result = self.order_executor.execute_initial_buy(
+            symbol=symbol,
+            current_price=price,
+            current_state=self.state_machine.state_name
+        )
+        
+        if result and result.is_filled:
+            # Success - check if position is now clean or still partial
+            reconciliation_result = self.reconciler.check_state()
+            
+            if reconciliation_result.recommended_state == TradingState.HOLDING_WAITING:
+                # Now a clean position
+                self.state_machine.transition_to(
+                    TradingState.HOLDING_WAITING,
+                    reason=f"Top up complete: position now clean"
+                )
+                self.state_machine.set_current_stock(stock_enum)
+                self._shares_held = self.reconciler.get_position_quantity(stock_name)
+            else:
+                # Still partial (shouldn't happen often)
+                self.state_machine.transition_to(
+                    TradingState.CLEANUP_MIXED,
+                    reason=f"Top up complete but position still partial"
+                )
+                self._shares_held = self.reconciler.get_position_quantity(stock_name)
+            
+            logger.info(f"Top up successful: {self._shares_held} shares of {symbol}")
+            return True
+        else:
+            # Buy failed
+            self.state_machine.force_error_state(
+                f"Top up buy failed: {result.error_message if result else 'No result'}"
+            )
+            return False
+    
+    def _execute_cleanup_sell(
+        self,
+        snapshot: PriceSnapshot,
+        stock_name: str,
+        sell_symbol: str,
+        sell_quantity: int
+    ) -> bool:
+        """
+        Execute a cleanup sell for conflict resolution.
+        
+        Used in CLEANUP_CONFLICT state to sell the non-optimal stock.
+        
+        Args:
+            snapshot: Current price snapshot
+            stock_name: "ticker_a" or "ticker_b" (stock being sold)
+            sell_symbol: Symbol to sell
+            sell_quantity: Number of shares to sell
+        
+        Returns:
+            True if successful, False if failed
+        """
+        logger.info(f"\nExecuting cleanup sell: {sell_symbol}")
+        
+        # Transition to PENDING_SELL
+        self.state_machine.transition_to(
+            TradingState.PENDING_SELL,
+            reason=f"Cleanup conflict: selling {sell_symbol}"
+        )
+        
+        # Get sell price
+        if stock_name == "ticker_a":
+            sell_price = snapshot.ticker_a_quote.last
+        else:
+            sell_price = snapshot.ticker_b_quote.last
+        
+        # Execute the sell
+        from .order_executor import OrderExecutor
+        result = self.order_executor.place_and_wait_for_fill(
+            symbol=sell_symbol,
+            action="SELL",
+            quantity=sell_quantity,
+            expected_price=sell_price,
+            current_state=self.state_machine.state_name
+        )
+        
+        if result and result.is_filled:
+            # Sell complete - check what state we should be in
+            reconciliation_result = self.reconciler.check_state()
+            
+            if reconciliation_result.recommended_state == TradingState.CLEANUP_CASH:
+                # Sold everything - now in cash
+                self.state_machine.transition_to(
+                    TradingState.CLEANUP_CASH,
+                    reason=f"Cleanup sell complete: now in cash"
+                )
+                self.state_machine.set_current_stock(StockHeld.NONE)
+            elif reconciliation_result.recommended_state == TradingState.CLEANUP_MIXED:
+                # Other stock remains but is partial
+                self.state_machine.transition_to(
+                    TradingState.CLEANUP_MIXED,
+                    reason=f"Cleanup sell complete: other stock remains (partial)"
+                )
+                self.state_machine.set_current_stock(reconciliation_result.current_stock)
+                other_stock_name = "ticker_a" if reconciliation_result.current_stock == StockHeld.TICKER_A else "ticker_b"
+                self._shares_held = self.reconciler.get_position_quantity(other_stock_name)
+            elif reconciliation_result.recommended_state == TradingState.HOLDING_WAITING:
+                # Other stock remains and is clean
+                self.state_machine.transition_to(
+                    TradingState.HOLDING_WAITING,
+                    reason=f"Cleanup sell complete: clean position remains"
+                )
+                self.state_machine.set_current_stock(reconciliation_result.current_stock)
+                other_stock_name = "ticker_a" if reconciliation_result.current_stock == StockHeld.TICKER_A else "ticker_b"
+                self._shares_held = self.reconciler.get_position_quantity(other_stock_name)
+            
+            logger.info(f"Cleanup sell successful: sold {sell_quantity} {sell_symbol}")
+            return True
+        else:
+            # Sell failed
+            self.state_machine.force_error_state(
+                f"Cleanup sell failed: {result.error_message if result else 'No result'}"
+            )
+            return False
+    
     def _emit_trade_metrics(self, trade_record, portfolio_value: float) -> None:
         """Emit metrics after a trade completes."""
         metrics = self.performance_tracker.get_metrics(portfolio_value)
@@ -874,6 +1025,50 @@ class LivePairsTrader:
                     if self._check_sufficient_buying_power(min_price):
                         self._execute_initial_buy(snapshot)
                 
+                elif current_state == TradingState.CLEANUP_CASH:
+                    # All cash on startup - buy undervalued stock (ignore trigger)
+                    logger.info("State: CLEANUP_CASH - buying undervalued stock")
+                    min_price = min(snapshot.ticker_a_quote.last, snapshot.ticker_b_quote.last)
+                    if self._check_sufficient_buying_power(min_price):
+                        self._execute_initial_buy(snapshot)
+                
+                elif current_state == TradingState.CLEANUP_MIXED:
+                    # Partial position - evaluate ratio and either top up or flip
+                    current_stock = self.state_machine.data.current_stock
+                    stock_name = "ticker_a" if current_stock == StockHeld.TICKER_A else "ticker_b"
+                    
+                    # Determine optimal stock from current ratio (ignore trigger)
+                    optimal_stock = self.price_tracker.get_undervalued_stock(snapshot)
+                    
+                    if optimal_stock == stock_name:
+                        # Current holding is optimal - top up position
+                        logger.info(f"CLEANUP_MIXED: Topping up {stock_name} position")
+                        self._execute_top_up(snapshot, stock_name)
+                    else:
+                        # Ratio flipped - sell current and flip to other stock
+                        logger.info(f"CLEANUP_MIXED: Flipping from {stock_name} to {optimal_stock}")
+                        direction = "to_ticker_a" if optimal_stock == "ticker_a" else "to_ticker_b"
+                        self._execute_swap(snapshot, direction)
+                
+                elif current_state == TradingState.CLEANUP_CONFLICT:
+                    # Both stocks held - sell non-optimal one
+                    optimal_stock = self.price_tracker.get_undervalued_stock(snapshot)
+                    
+                    if optimal_stock == "ticker_a":
+                        # Keep A, sell B
+                        sell_stock_name = "ticker_b"
+                        sell_symbol = self.ticker_b
+                        sell_quantity = self.reconciler.get_position_quantity("ticker_b")
+                    else:
+                        # Keep B, sell A
+                        sell_stock_name = "ticker_a"
+                        sell_symbol = self.ticker_a
+                        sell_quantity = self.reconciler.get_position_quantity("ticker_a")
+                    
+                    logger.info(f"CLEANUP_CONFLICT: Selling {sell_symbol}, keeping {optimal_stock}")
+                    self._execute_cleanup_sell(snapshot, sell_stock_name, sell_symbol, sell_quantity)
+                
+                
                 elif current_state == TradingState.HOLDING_WAITING:
                     # Check if we should swap
                     current_stock = self.state_machine.data.current_stock
@@ -935,17 +1130,36 @@ class LivePairsTrader:
                         if status == OrderStatus.FILLED:
                             # Order filled - reconcile and update state
                             result = self.reconciler.check_state()
+                            
+                            # Determine target state based on reconciliation
                             if result.recommended_state == TradingState.HOLDING_WAITING:
                                 self.state_machine.transition_to(
                                     TradingState.HOLDING_WAITING,
-                                    reason="Pending order filled"
+                                    reason="Pending order filled (clean position)"
                                 )
                                 self.state_machine.set_current_stock(result.current_stock)
+                                stock_name = "ticker_a" if result.current_stock == StockHeld.TICKER_A else "ticker_b"
+                                self._shares_held = self.reconciler.get_position_quantity(stock_name)
+                            elif result.recommended_state == TradingState.CLEANUP_MIXED:
+                                self.state_machine.transition_to(
+                                    TradingState.CLEANUP_MIXED,
+                                    reason="Pending order filled (still partial)"
+                                )
+                                self.state_machine.set_current_stock(result.current_stock)
+                                stock_name = "ticker_a" if result.current_stock == StockHeld.TICKER_A else "ticker_b"
+                                self._shares_held = self.reconciler.get_position_quantity(stock_name)
+                            elif result.recommended_state == TradingState.CLEANUP_CASH:
+                                self.state_machine.transition_to(
+                                    TradingState.CLEANUP_CASH,
+                                    reason="Pending sell filled (now in cash)"
+                                )
+                                self.state_machine.set_current_stock(StockHeld.NONE)
                             elif result.recommended_state == TradingState.CASH:
                                 self.state_machine.transition_to(
                                     TradingState.CASH,
-                                    reason="Pending order filled (now in cash)"
+                                    reason="Pending sell filled (intermediary cash)"
                                 )
+                                self.state_machine.set_current_stock(StockHeld.NONE)
                 
                 # Periodic reconciliation
                 now = datetime.now()

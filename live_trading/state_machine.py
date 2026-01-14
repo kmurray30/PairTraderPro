@@ -7,6 +7,9 @@ actions based on the current state.
 
 States:
     WARMING_UP: Fetching historical bars to bootstrap moving average
+    CLEANUP_CASH: All cash, buying undervalued stock (ignores trigger)
+    CLEANUP_MIXED: Partial position, resolving to full position
+    CLEANUP_CONFLICT: Both stocks held, resolving to one stock
     CASH: No position, ready to buy undervalued stock
     PENDING_BUY: Buy order placed, awaiting fill confirmation
     HOLDING_WAITING: Position held, monitoring for trigger condition
@@ -34,13 +37,16 @@ class TradingState(Enum):
     The numeric values are used for Prometheus metrics.
     """
     WARMING_UP = 0          # Bootstrapping moving average from historical data
-    CASH = 1                # No position, ready to initiate buy
-    PENDING_BUY = 2         # Buy order in flight, waiting for fill
-    HOLDING_WAITING = 3     # Holding position, waiting for trigger
-    HOLDING_TRIGGERED = 4   # Trigger met, about to swap
-    PENDING_SELL = 5        # Sell order in flight (buy follows after)
-    HOLDING_DAILY_LIMIT = 6 # Holding position, daily trade limit reached
-    ERROR = 7               # Fatal error, app frozen
+    CLEANUP_CASH = 1        # All cash, buying undervalued stock (ignores trigger threshold)
+    CLEANUP_MIXED = 2       # Partial position, resolving to full position (ignores trigger)
+    CLEANUP_CONFLICT = 3    # Both stocks held, resolving conflict (should never happen)
+    CASH = 4                # No position, ready to initiate buy (intermediary in swap)
+    PENDING_BUY = 5         # Buy order in flight, waiting for fill
+    HOLDING_WAITING = 6     # Holding position, waiting for trigger
+    HOLDING_TRIGGERED = 7   # Trigger met, about to swap
+    PENDING_SELL = 8        # Sell order in flight (buy follows after)
+    HOLDING_DAILY_LIMIT = 9 # Holding position, daily trade limit reached
+    ERROR = 10              # Fatal error, app frozen
 
 
 class StockHeld(Enum):
@@ -54,19 +60,41 @@ class StockHeld(Enum):
 # Key: current state, Value: set of valid next states
 VALID_TRANSITIONS: Dict[TradingState, Set[TradingState]] = {
     TradingState.WARMING_UP: {
-        TradingState.CASH,           # MA ready, no position
-        TradingState.HOLDING_WAITING, # MA ready, has position (recovery)
-        TradingState.ERROR,          # Something went wrong during warmup
+        TradingState.CLEANUP_CASH,    # MA ready, no position
+        TradingState.CLEANUP_MIXED,   # MA ready, partial position
+        TradingState.CLEANUP_CONFLICT, # MA ready, both stocks (conflict)
+        TradingState.CASH,            # MA ready, no position (legacy)
+        TradingState.HOLDING_WAITING, # MA ready, clean position (recovery)
+        TradingState.PENDING_BUY,     # MA ready, pending buy order
+        TradingState.PENDING_SELL,    # MA ready, pending sell order
+        TradingState.ERROR,           # Something went wrong during warmup
+    },
+    
+    TradingState.CLEANUP_CASH: {
+        TradingState.PENDING_BUY,     # Initiating buy of undervalued stock
+        TradingState.ERROR,           # API failure, etc.
+    },
+    
+    TradingState.CLEANUP_MIXED: {
+        TradingState.PENDING_BUY,     # Topping up position
+        TradingState.PENDING_SELL,    # Selling to flip to other stock
+        TradingState.ERROR,           # API failure, etc.
+    },
+    
+    TradingState.CLEANUP_CONFLICT: {
+        TradingState.PENDING_SELL,    # Selling non-optimal stock
+        TradingState.ERROR,           # API failure, etc.
     },
     
     TradingState.CASH: {
-        TradingState.PENDING_BUY,    # Initiating buy of undervalued stock
-        TradingState.ERROR,          # API failure, etc.
+        TradingState.PENDING_BUY,     # Initiating buy of undervalued stock
+        TradingState.ERROR,           # API failure, etc.
     },
     
     TradingState.PENDING_BUY: {
-        TradingState.HOLDING_WAITING, # Buy order filled
-        TradingState.ERROR,          # Order rejected
+        TradingState.HOLDING_WAITING, # Buy order filled (clean position)
+        TradingState.CLEANUP_MIXED,   # Buy order filled (still partial)
+        TradingState.ERROR,           # Order rejected
     },
     
     TradingState.HOLDING_WAITING: {
@@ -76,19 +104,21 @@ VALID_TRANSITIONS: Dict[TradingState, Set[TradingState]] = {
     },
     
     TradingState.HOLDING_TRIGGERED: {
-        TradingState.PENDING_SELL,   # Initiating swap (sell first)
+        TradingState.PENDING_SELL,    # Initiating swap (sell first)
         TradingState.HOLDING_WAITING, # Aborted (past cutoff, etc.)
-        TradingState.ERROR,          # API failure
+        TradingState.ERROR,           # API failure
     },
     
     TradingState.PENDING_SELL: {
-        TradingState.CASH,           # Sell filled, now in cash (buy follows)
-        TradingState.ERROR,          # Order rejected
+        TradingState.CASH,            # Sell filled, now in cash (normal swap)
+        TradingState.CLEANUP_CASH,    # Sell filled, now in cash (from cleanup)
+        TradingState.CLEANUP_MIXED,   # Sell filled, other stock remains (from conflict)
+        TradingState.ERROR,           # Order rejected
     },
     
     TradingState.HOLDING_DAILY_LIMIT: {
         TradingState.HOLDING_WAITING, # New trading day started
-        TradingState.ERROR,          # Position mismatch, etc.
+        TradingState.ERROR,           # Position mismatch, etc.
     },
     
     TradingState.ERROR: {
@@ -294,7 +324,8 @@ class StateMachine:
         return self._state in {
             TradingState.HOLDING_WAITING,
             TradingState.HOLDING_TRIGGERED,
-            TradingState.HOLDING_DAILY_LIMIT
+            TradingState.HOLDING_DAILY_LIMIT,
+            TradingState.CLEANUP_MIXED  # Partial position still counts as holding
         }
     
     def is_order_pending(self) -> bool:
@@ -312,6 +343,9 @@ class StateMachine:
         """Check if we're in a state where new trades can be initiated."""
         return self._state in {
             TradingState.CASH,
+            TradingState.CLEANUP_CASH,
+            TradingState.CLEANUP_MIXED,
+            TradingState.CLEANUP_CONFLICT,
             TradingState.HOLDING_WAITING
         }
     
@@ -333,4 +367,13 @@ class StateMachine:
             self.is_holding_position() and 
             self.data.current_stock == stock
         )
+    
+    def is_in_cleanup(self) -> bool:
+        """Check if we're in any cleanup state."""
+        return self._state in {
+            TradingState.CLEANUP_CASH,
+            TradingState.CLEANUP_MIXED,
+            TradingState.CLEANUP_CONFLICT
+        }
+
 

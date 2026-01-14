@@ -7,70 +7,64 @@ This document provides a visual flow diagram for the pairs trading algorithm's s
 
 ```mermaid
 stateDiagram-v2
-    [*] --> WARMING_UP: Algorithm starts
+    [*] --> WARMING_UP: Start
     
-    WARMING_UP --> CASH: MA bootstrapped, no position
-    WARMING_UP --> HOLDING_WAITING: MA bootstrapped, has position (recovery)
+    WARMING_UP --> CLEANUP_CASH: No position
+    WARMING_UP --> CLEANUP_MIXED: Partial position (under 80%)
+    WARMING_UP --> CLEANUP_CONFLICT: Both stocks
+    WARMING_UP --> HOLDING_WAITING: Clean position
+    WARMING_UP --> PENDING_BUY: Pending buy
+    WARMING_UP --> PENDING_SELL: Pending sell
     WARMING_UP --> ERROR: Bootstrap failed
     
-    CASH --> PENDING_BUY: Initiate buy of undervalued stock
+    CLEANUP_CASH --> PENDING_BUY: Buy undervalued
+    CLEANUP_CASH --> ERROR: API failure
+    
+    CLEANUP_MIXED --> PENDING_BUY: Top up
+    CLEANUP_MIXED --> PENDING_SELL: Flip
+    CLEANUP_MIXED --> ERROR: API failure
+    
+    CLEANUP_CONFLICT --> PENDING_SELL: Sell non-optimal
+    CLEANUP_CONFLICT --> ERROR: API failure
+    
+    CASH --> PENDING_BUY: Buy (swap step 2)
     CASH --> ERROR: API failure
     
-    PENDING_BUY --> HOLDING_WAITING: Buy order filled
-    PENDING_BUY --> ERROR: Order rejected
+    PENDING_BUY --> HOLDING_WAITING: Filled (clean)
+    PENDING_BUY --> CLEANUP_MIXED: Filled (partial)
+    PENDING_BUY --> ERROR: Rejected
     
-    HOLDING_WAITING --> HOLDING_TRIGGERED: Trigger condition met (ratio deviation > threshold)
-    HOLDING_WAITING --> HOLDING_DAILY_LIMIT: Daily trade limit reached
-    HOLDING_WAITING --> ERROR: Position mismatch / reconciliation failure
+    HOLDING_WAITING --> HOLDING_TRIGGERED: Trigger met
+    HOLDING_WAITING --> HOLDING_DAILY_LIMIT: Daily limit
+    HOLDING_WAITING --> ERROR: Mismatch
     
-    HOLDING_TRIGGERED --> PENDING_SELL: Initiate swap (sell current position first)
-    HOLDING_TRIGGERED --> HOLDING_WAITING: Abort swap (past cutoff time / conditions changed)
+    HOLDING_TRIGGERED --> PENDING_SELL: Swap
+    HOLDING_TRIGGERED --> HOLDING_WAITING: Abort
     HOLDING_TRIGGERED --> ERROR: API failure
     
-    PENDING_SELL --> CASH: Sell order filled, now in cash
-    PENDING_SELL --> ERROR: Order rejected
+    PENDING_SELL --> CASH: Filled (swap)
+    PENDING_SELL --> CLEANUP_CASH: Filled (cleanup)
+    PENDING_SELL --> CLEANUP_MIXED: Filled (conflict)
+    PENDING_SELL --> ERROR: Rejected
     
-    HOLDING_DAILY_LIMIT --> HOLDING_WAITING: New trading day started (reset counter)
-    HOLDING_DAILY_LIMIT --> ERROR: Position mismatch
+    HOLDING_DAILY_LIMIT --> HOLDING_WAITING: New day
+    HOLDING_DAILY_LIMIT --> ERROR: Mismatch
     
-    ERROR --> [*]: Terminal state - requires manual restart
+    ERROR --> [*]: Terminal
     
-    note right of WARMING_UP
-        Fetching historical bars
-        to bootstrap MA (240 min)
-        Can recover existing position
+    note right of CLEANUP_CASH
+        All cash on startup
+        Ignores trigger threshold
     end note
     
-    note right of HOLDING_WAITING
-        Main monitoring state
-        - Polls quotes every 1 sec
-        - Tracks ratio vs MA
-        - Checks trigger condition
-        - Runs reconciliation
+    note right of CLEANUP_MIXED
+        Partial position (under 80%)
+        Tops up or flips
     end note
     
-    note right of PENDING_SELL
-        Sequential execution:
-        1. Sell completes first
-        2. Transition to CASH
-        3. Then buy executes
-        (Ensures no margin needed)
-    end note
-    
-    note right of ERROR
-        Frozen - no auto recovery
-        Requires manual intervention
-        Check logs for:
-        - ORDER_REJECTED
-        - POSITION_MISMATCH
-        - API_FAILURE_EXHAUSTED
-    end note
-    
-    note left of HOLDING_DAILY_LIMIT
-        Hit trade limit for today
-        Will resume monitoring
-        on next trading day
-        (Prevents overtrading)
+    note right of CLEANUP_CONFLICT
+        Both stocks held
+        Resolves to one
     end note
 ```
 
@@ -81,7 +75,6 @@ stateDiagram-v2
 
 **Entry Conditions:**
 - Algorithm initialization
-- First state on startup
 
 **Activities:**
 - Fetch 240 minutes of 1-minute historical bars
@@ -89,8 +82,11 @@ stateDiagram-v2
 - Query TradeStation for existing positions (recovery mode)
 
 **Exit Conditions:**
-- Success with no position → CASH
-- Success with existing position → HOLDING_WAITING (recovery)
+- No position → CLEANUP_CASH
+- Partial position (under 80%) → CLEANUP_MIXED
+- Both stocks → CLEANUP_CONFLICT
+- Clean position → HOLDING_WAITING
+- Pending order → PENDING_BUY or PENDING_SELL
 - Failure → ERROR
 
 **State Data:**
@@ -99,18 +95,17 @@ stateDiagram-v2
 
 ---
 
-### CASH (State 1)
-**Purpose:** Ready to buy undervalued stock, no position held
+### CLEANUP_CASH (State 1)
+**Purpose:** All cash on startup - buy undervalued stock (ignores trigger)
 
 **Entry Conditions:**
 - MA bootstrap complete with no position
-- Sell order completed during swap
-- Initial funding available
+- Cleanup conflict sell completed
 
 **Activities:**
-- Monitor ratio vs MA
-- Wait for buy opportunity (when algorithm determines undervalued stock)
-- Calculate shares to buy based on available cash
+- Determine undervalued stock from current ratio
+- Buy immediately (respects market hours, ignores trigger threshold)
+- Calculate shares based on buying power or allocated_cash
 
 **Exit Conditions:**
 - Buy initiated → PENDING_BUY
@@ -120,14 +115,88 @@ stateDiagram-v2
 - `current_stock`: NONE
 - `pending_order_id`: None
 
+**Note:** Uses >= for ties (favors ticker_b at exactly zero deviation)
+
 ---
 
-### PENDING_BUY (State 2)
+### CLEANUP_MIXED (State 2)
+**Purpose:** Partial position detected - resolve to full position
+
+**Entry Conditions:**
+- MA bootstrap with position under 80% threshold
+- Top-up buy completed but still partial
+- Cleanup conflict sell with remaining position
+
+**Activities:**
+- Evaluate current ratio to determine optimal stock
+- If current stock is optimal → top up position
+- If ratio flipped → sell and flip to other stock
+- Ignores trigger threshold
+
+**Exit Conditions:**
+- Top up buy → PENDING_BUY
+- Flip sell → PENDING_SELL
+- API failure → ERROR
+
+**State Data:**
+- `current_stock`: TICKER_A or TICKER_B
+- `pending_order_id`: None
+
+**Threshold:** Position value < 80% of (allocated_cash or buying_power)
+
+---
+
+### CLEANUP_CONFLICT (State 3)
+**Purpose:** Both stocks held - should never happen, resolve to one
+
+**Entry Conditions:**
+- MA bootstrap found positions in both stocks
+- Manual intervention or bug created invalid state
+
+**Activities:**
+- Determine optimal stock from current ratio
+- Sell the non-optimal stock
+- Keep the optimal stock
+
+**Exit Conditions:**
+- Sell initiated → PENDING_SELL
+- API failure → ERROR
+
+**State Data:**
+- `current_stock`: NONE (conflict)
+- `pending_order_id`: None
+
+**Note:** After sell, transitions to CLEANUP_CASH, CLEANUP_MIXED, or HOLDING_WAITING depending on remaining position
+
+---
+
+### CASH (State 4)
+**Purpose:** Intermediary state during swap (sell complete, buy pending)
+
+**Entry Conditions:**
+- Sell order completed during normal swap
+
+**Activities:**
+- Immediate transition to buy
+- Very brief state (milliseconds)
+
+**Exit Conditions:**
+- Buy initiated → PENDING_BUY
+- API failure → ERROR
+
+**State Data:**
+- `current_stock`: NONE
+- `pending_order_id`: None
+
+**Note:** Different from CLEANUP_CASH - CASH is always mid-swap
+
+---
+
+### PENDING_BUY (State 5)
 **Purpose:** Buy order placed, waiting for fill confirmation
 
 **Entry Conditions:**
-- Buy order submitted to TradeStation
-- Transitioning from CASH or after sell completes
+- Buy order submitted
 
 **Activities:**
 - Poll order status via API
@@ -135,8 +204,9 @@ stateDiagram-v2
 - Log actual fill price and slippage
 
 **Exit Conditions:**
-- Order filled → HOLDING_WAITING
-- Order rejected → ERROR (CRITICAL)
+- Order filled (clean) → HOLDING_WAITING
+- Order filled (partial) → CLEANUP_MIXED
+- Order rejected → ERROR
 - Timeout (60 seconds) → ERROR
 
 **State Data:**
@@ -145,14 +215,13 @@ stateDiagram-v2
 
 ---
 
-### HOLDING_WAITING (State 3)
+### HOLDING_WAITING (State 6)
 **Purpose:** Main monitoring state - holding position, watching for trigger
 
 **Entry Conditions:**
-- Buy order filled
-- MA bootstrapped with existing position (recovery)
+- Buy order filled (clean position)
 - Daily limit reset to new day
-- Swap aborted (conditions changed)
+- Swap aborted
 
 **Activities:**
 - Poll quotes every 1 second
@@ -173,23 +242,22 @@ stateDiagram-v2
 
 ---
 
-### HOLDING_TRIGGERED (State 4)
+### HOLDING_TRIGGERED (State 7)
 **Purpose:** Trigger condition met, about to initiate swap
 
 **Entry Conditions:**
 - In HOLDING_WAITING
 - Ratio deviation exceeds trigger_percent threshold
-- Holding opposite stock to what's undervalued
 
 **Activities:**
 - Verify trigger condition still met
-- Check swap cutoff time (not within 10 min of close)
+- Check swap cutoff time
 - Check daily trade limit
 - Prepare for swap execution
 
 **Exit Conditions:**
 - Proceed with swap → PENDING_SELL
-- Abort (past cutoff or conditions changed) → HOLDING_WAITING
+- Abort → HOLDING_WAITING
 - API failure → ERROR
 
 **State Data:**
@@ -198,12 +266,12 @@ stateDiagram-v2
 
 ---
 
-### PENDING_SELL (State 5)
-**Purpose:** Sell order placed, waiting for fill (buy follows)
+### PENDING_SELL (State 8)
+**Purpose:** Sell order placed, waiting for fill
 
 **Entry Conditions:**
 - Swap initiated from HOLDING_TRIGGERED
-- Sell order submitted to TradeStation
+- Cleanup sell initiated
 
 **Activities:**
 - Poll order status via API
@@ -212,19 +280,22 @@ stateDiagram-v2
 - Calculate actual proceeds
 
 **Exit Conditions:**
-- Order filled → CASH (then immediate buy follows)
-- Order rejected → ERROR (CRITICAL)
+- Sell filled (normal swap) → CASH
+- Sell filled (cleanup to cash) → CLEANUP_CASH
+- Sell filled (cleanup with remaining) → CLEANUP_MIXED
+- Sell filled (now clean) → HOLDING_WAITING
+- Order rejected → ERROR
 - Timeout → ERROR
 
 **State Data:**
-- `current_stock`: About to become NONE
+- `current_stock`: About to change
 - `pending_order_id`: Sell order ID
 
-**Critical Note:** After transitioning to CASH, the algorithm immediately initiates a buy of the other stock. This is the sequential sell→buy pattern that ensures no margin is needed.
+**Note:** Transitions depend on context (normal swap vs cleanup)
 
 ---
 
-### HOLDING_DAILY_LIMIT (State 6)
+### HOLDING_DAILY_LIMIT (State 9)
 **Purpose:** Position held, daily trade limit reached
 
 **Entry Conditions:**
@@ -251,7 +322,7 @@ stateDiagram-v2
 
 ---
 
-### ERROR (State 7)
+### ERROR (State 10)
 **Purpose:** Fatal error occurred, algorithm frozen
 
 **Entry Conditions:**
