@@ -760,7 +760,7 @@ class Orders:
         # Make the GET request and return available routes
         return self.client.get(endpoint)
     
-    def get_order(self, order_id: str) -> Dict[str, Any]:
+    def get_order(self, order_id: str, account_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Get details of a specific order by OrderID.
         
@@ -777,6 +777,7 @@ class Orders:
             order_id: Order ID to get details for
                      Format: Numeric string (e.g., '123456789')
                      Get from place_order() or get_orders()
+            account_id: Account ID (optional, uses default from config if not provided)
         
         Returns:
             Dictionary containing complete order details:
@@ -811,14 +812,26 @@ class Orders:
             ...     print("Order is still active")
         
         Note:
-            - API endpoint: GET /v3/orderexecution/orders/{orderId}
+            - API endpoint: GET /v3/brokerage/accounts/{accountId}/orders/{orderId}
             - Returns current status (snapshot, not streaming)
             - For real-time updates, use stream_orders()
             - May return error if order ID doesn't exist
         """
-        # Construct the order detail endpoint with the order ID
-        # Format: /v3/orderexecution/orders/123456789
-        endpoint = f"/v3/orderexecution/orders/{order_id}"
+        # Use default account if not provided
+        if account_id is None:
+            account_id = self.client.config.account_id
+        
+        # Construct the order detail endpoint with account ID and order ID
+        # Format: /v3/brokerage/accounts/SIM2977785M/orders/123456789
+        endpoint = f"/v3/brokerage/accounts/{account_id}/orders/{order_id}"
         
         # Make the GET request and return order details
-        return self.client.get(endpoint)
+        # The API returns an array of orders, so we extract the first one
+        response = self.client.get(endpoint)
+        
+        # API returns {"Orders": [order_data]}
+        if 'Orders' in response and len(response['Orders']) > 0:
+            return response['Orders'][0]
+        
+        # If no orders found, return the raw response
+        return response

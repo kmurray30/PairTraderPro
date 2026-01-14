@@ -125,7 +125,7 @@ swap_cutoff_minutes_before_close: 10
 # Useful for trading assets that trade 24/7 (crypto, futures)
 # When false, respects standard market hours (9:30 AM - 4:00 PM ET)
 # Default: false
-enable_24h_trading: true
+enable_24h_trading: false # LEAVE FALSE - after hours trading is untested and results in errors atm
 
 # -----------------------------------------------------------------------------
 # Allocated Cash for Trading (Optional Demo/Testing Limit)

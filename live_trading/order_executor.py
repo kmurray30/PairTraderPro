@@ -29,13 +29,20 @@ Order Status Values (from TradeStation API):
 
 import time
 import math
-from datetime import datetime
+from datetime import datetime, time as dt_time
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
 # Import centralized logger
 from .logger import logger
+
+
+# Market hours constants (Eastern Time)
+EASTERN_TZ = ZoneInfo("America/New_York")
+MARKET_OPEN = dt_time(9, 30)
+MARKET_CLOSE = dt_time(16, 0)
 
 
 class OrderStatus(Enum):
@@ -163,6 +170,17 @@ class OrderExecutor:
         self.poll_interval = poll_interval
         self.max_poll_attempts = max_poll_attempts
         self.allocated_cash = allocated_cash
+    
+    def _is_market_open(self) -> bool:
+        """
+        Check if market is currently open (9:30 AM - 4:00 PM ET).
+        
+        Returns:
+            True if within market hours, False otherwise
+        """
+        now_et = datetime.now(EASTERN_TZ)
+        current_time = now_et.time()
+        return MARKET_OPEN <= current_time < MARKET_CLOSE
     
     def get_buying_power(self) -> float:
         """
@@ -294,13 +312,18 @@ class OrderExecutor:
             try:
                 status = OrderStatus(status_str)
             except ValueError:
+                logger.warning(f"Unknown order status '{status_str}' for order {order_id}")
                 status = OrderStatus.UNKNOWN
             
-            logger.debug(f"Order {order_id} status: {status_str}")
+            logger.verbose(f"Order {order_id} status: {status_str}")
             return status, response
             
         except Exception as exception:
-            logger.error(f"Failed to get order status: {exception}")
+            # ERROR level - this is a real problem
+            logger.error(f"Failed to get order status for {order_id}: {exception}")
+            logger.error(f"Exception type: {type(exception).__name__}")
+            # Log full traceback at debug level
+            logger.debug("Full traceback:", exc_info=True)
             return OrderStatus.UNKNOWN, {}
     
     def wait_for_fill(
@@ -418,15 +441,56 @@ class OrderExecutor:
                     filled_so_far = order_data.get('FilledQuantity', 0)
                     logger.verbose(f"Partial fill: {filled_so_far}/{quantity} shares")
                 
+                # Log periodic updates every 20 attempts (20 seconds)
+                if attempts > 0 and attempts % 20 == 0:
+                    logger.info(
+                        f"Still waiting for order {order_id} to fill... "
+                        f"Status: {status.value} (attempt {attempts}/{self.max_poll_attempts})"
+                    )
+                
                 time.sleep(self.poll_interval)
                 attempts += 1
             
             else:
                 # Unknown status - continue polling
+                # Log periodic updates for unknown status too
+                if attempts > 0 and attempts % 20 == 0:
+                    logger.warning(
+                        f"Order {order_id} in unknown status (attempt {attempts}/{self.max_poll_attempts})"
+                    )
+                
                 time.sleep(self.poll_interval)
                 attempts += 1
         
         # Timeout - max attempts reached
+        # Log comprehensive timeout information with context
+        last_status_str = order_data.get('Status', 'Unknown')
+        market_open = self._is_market_open()
+        market_status = "during market hours" if market_open else "after hours"
+        
+        # Log timeout details at appropriate level
+        logger.error(
+            f"Order {order_id} timeout after {self.max_poll_attempts} attempts "
+            f"({self.max_poll_attempts * self.poll_interval:.0f}s). "
+            f"Final status: {last_status_str}. Market: {market_status}"
+        )
+        logger.error(f"Order details: {action} {quantity} {symbol} @ ${expected_price:.2f}")
+        
+        # Provide actionable guidance based on market status
+        if not market_open:
+            logger.warning(
+                f"Order placed after hours - may fill when market opens. "
+                f"Consider: (1) Cancel and retry at open, or (2) Wait patiently"
+            )
+        else:
+            logger.error(
+                f"Order failed to fill during market hours - likely a broker issue. "
+                f"Entering ERROR state. Check order {order_id} in TradeStation."
+            )
+        
+        # Log full order data at verbose level for debugging
+        logger.verbose(f"Full order data: {order_data}")
+        
         result = OrderResult(
             order_id=order_id,
             symbol=symbol,
@@ -437,7 +501,8 @@ class OrderExecutor:
             status=OrderStatus.UNKNOWN,
             filled_quantity=0,
             timestamp=datetime.now(),
-            error_message=f"Timeout waiting for fill after {self.max_poll_attempts} attempts"
+            error_message=f"Timeout waiting for fill after {self.max_poll_attempts} attempts. "
+                         f"Final status: {last_status_str}. Market: {market_status}"
         )
         return result
     
