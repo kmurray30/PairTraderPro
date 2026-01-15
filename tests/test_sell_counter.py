@@ -270,11 +270,11 @@ def test_increment_on_new_day_resets_first(clean_counter_file):
 
 def test_state_directory_created(clean_counter_file):
     """Test that state directory is created if it doesn't exist."""
+    import shutil
+    
     # Remove state directory
     if COUNTER_FILE.parent.exists():
-        if COUNTER_FILE.exists():
-            COUNTER_FILE.unlink()
-        COUNTER_FILE.parent.rmdir()
+        shutil.rmtree(COUNTER_FILE.parent)
     
     # Create manager - should create directory
     manager = SellCounterManager()

@@ -542,14 +542,38 @@ class OrderExecutor:
             OrderResult with complete fill information
             Returns rejected OrderResult if sell not allowed
         """
+        return self._place_and_wait_internal(
+            symbol=symbol,
+            action=action,
+            quantity=quantity,
+            expected_price=expected_price,
+            current_state=current_state,
+            skip_counter_check=False
+        )
+    
+    def _place_and_wait_internal(
+        self,
+        symbol: str,
+        action: str,
+        quantity: int,
+        expected_price: float,
+        current_state: str = "",
+        skip_counter_check: bool = False
+    ) -> OrderResult:
+        """
+        Internal method to place order and wait for fill.
+        
+        Args:
+            skip_counter_check: If True, skip the counter check (used when execute_swap already checked)
+        """
         # Check sell counter for SELL orders (prevents Good Faith Violations)
-        if action == "SELL" and self.sell_counter_manager:
+        if action == "SELL" and self.sell_counter_manager and not skip_counter_check:
             if not self.sell_counter_manager.can_sell(self.sells_per_day_limit):
-                logger.critical(
+                logger.error(
                     f"🚨 SELL BLOCKED: Daily sell limit reached "
                     f"({self.sell_counter_manager.get_counter()}/{self.sells_per_day_limit})"
                 )
-                logger.critical(
+                logger.error(
                     "Sell order aborted to prevent Good Faith Violation"
                 )
                 return OrderResult(
@@ -570,8 +594,8 @@ class OrderExecutor:
                 new_count = self.sell_counter_manager.increment_and_persist()
                 logger.info(f"✓ Sell counter incremented and persisted: {new_count}")
             except RuntimeError as error:
-                logger.critical(f"Sell counter persistence FAILED: {error}")
-                logger.critical("ABORTING SELL - order will NOT be placed")
+                logger.error(f"Sell counter persistence FAILED: {error}")
+                logger.error("ABORTING SELL - order will NOT be placed")
                 return OrderResult(
                     order_id="",
                     symbol=symbol,
@@ -687,11 +711,11 @@ class OrderExecutor:
         # Step 1: Check if sell is allowed (under daily limit)
         if self.sell_counter_manager:
             if not self.sell_counter_manager.can_sell(self.sells_per_day_limit):
-                logger.critical(
+                logger.error(
                     f"🚨 SELL BLOCKED: Daily sell limit reached "
                     f"({self.sell_counter_manager.get_counter()}/{self.sells_per_day_limit})"
                 )
-                logger.critical(
+                logger.error(
                     "Attempting to sell would risk Good Faith Violation. "
                     "Swap aborted - no orders placed."
                 )
@@ -702,17 +726,18 @@ class OrderExecutor:
                 new_count = self.sell_counter_manager.increment_and_persist()
                 logger.info(f"✓ Sell counter incremented and persisted: {new_count}")
             except RuntimeError as error:
-                logger.critical(f"Sell counter persistence FAILED: {error}")
-                logger.critical("ABORTING SWAP - sell order will NOT be placed")
+                logger.error(f"Sell counter persistence FAILED: {error}")
+                logger.error("ABORTING SWAP - sell order will NOT be placed")
                 return None, None
         
-        # Step 3: Execute SELL order
-        sell_result = self.place_and_wait_for_fill(
+        # Step 3: Execute SELL order (counter already incremented, so use internal method)
+        sell_result = self._place_and_wait_internal(
             symbol=sell_symbol,
             action="SELL",
             quantity=sell_quantity,
             expected_price=current_price_sell,
-            current_state=current_state
+            current_state=current_state,
+            skip_counter_check=True  # Already checked and incremented above
         )
         
         # Check if sell was successful

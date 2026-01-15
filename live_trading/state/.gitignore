@@ -1,5 +1,0 @@
-# Ignore all state files (they're runtime-specific)
-*
-# But track the directory itself
-!.gitignore
-
