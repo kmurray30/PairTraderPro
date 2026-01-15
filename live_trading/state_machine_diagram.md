@@ -238,7 +238,7 @@ stateDiagram-v2
 **State Data:**
 - `current_stock`: TICKER_A or TICKER_B
 - `pending_order_id`: None
-- `trades_today`: Tracked and incremented
+- `sells_today`: Tracked and incremented (for GFV prevention)
 
 ---
 
@@ -296,18 +296,18 @@ stateDiagram-v2
 ---
 
 ### HOLDING_DAILY_LIMIT (State 9)
-**Purpose:** Position held, daily trade limit reached
+**Purpose:** Position held, daily sell limit reached (GFV prevention)
 
 **Entry Conditions:**
 - In HOLDING_WAITING
-- `trades_today` >= `trades_per_day_limit` (from settings.yaml)
-- `enforce_one_trade_per_day` check also enforced
+- `sells_today` >= `sells_per_day_limit` (from settings.yaml)
+- Prevents Good Faith Violations from selling positions bought with unsettled funds
 
 **Activities:**
 - Continue monitoring ratio and MA (logging only)
 - Continue reconciliation
 - Check for new trading day (date change)
-- NO trading actions taken
+- NO SELL operations allowed (buys still permitted)
 
 **Exit Conditions:**
 - New trading day detected → HOLDING_WAITING (counter reset)
@@ -315,10 +315,10 @@ stateDiagram-v2
 
 **State Data:**
 - `current_stock`: Unchanged
-- `trades_today`: At limit
+- `sells_today`: At limit
 - `last_trade_day`: Date of last trade
 
-**Safety Note:** This state prevents overtrading. Both `trades_per_day_limit` and `enforce_one_trade_per_day` must allow the trade.
+**Safety Note:** This state prevents Good Faith Violations. The sell counter persists to file (`live_trading/state/sell_counter.txt`) to survive app crashes.
 
 ---
 
@@ -362,7 +362,7 @@ The `StateData` class (lines 106-126 in `state_machine.py`) tracks the following
 |-------|------|-------------|
 | `current_stock` | StockHeld | Which stock is held: NONE, TICKER_A, or TICKER_B |
 | `pending_order_id` | Optional[str] | Order ID when in PENDING states |
-| `trades_today` | int | Count of trades executed today |
+| `sells_today` | int | Count of SELL operations executed today (for GFV prevention) |
 | `last_trade_day` | Optional[str] | Date of last trade (for daily reset) |
 | `portfolio_value_at_trade_start` | float | Portfolio value when trade sequence began |
 
@@ -378,7 +378,7 @@ The `StateData` class (lines 106-126 in `state_machine.py`) tracks the following
 | WARMING_UP | HOLDING_WAITING | MA bootstrap complete, has position |
 | PENDING_BUY | HOLDING_WAITING | Order status = "Filled" |
 | HOLDING_WAITING | HOLDING_TRIGGERED | `abs(ratio/MA - 1) > trigger_percent` |
-| HOLDING_WAITING | HOLDING_DAILY_LIMIT | `trades_today >= limit` |
+| HOLDING_WAITING | HOLDING_DAILY_LIMIT | `sells_today >= sells_per_day_limit` |
 | HOLDING_TRIGGERED | PENDING_SELL | Swap execution approved |
 | HOLDING_TRIGGERED | HOLDING_WAITING | Swap aborted (cutoff time) |
 | PENDING_SELL | CASH | Order status = "Filled" |

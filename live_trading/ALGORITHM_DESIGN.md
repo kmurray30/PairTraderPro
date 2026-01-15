@@ -158,23 +158,37 @@ ticker_b: "MA"     # Second stock (denominator of ratio)
 ```yaml
 trigger_percent: 0.4              # Min % deviation to trigger swap
 moving_average_window_minutes: 240 # 4 hours of 1-minute bars
-trades_per_day_limit: 1           # Max swaps per day (0 = unlimited)
+sells_per_day_limit: 1            # Max SELL operations per day (GFV prevention)
 ```
 
-### Secondary Safety Flag
+### Good Faith Violation Prevention
 
-In addition to `trades_per_day_limit`, there is a secondary safety setting in `settings.yaml`:
+The `sells_per_day_limit` setting prevents Good Faith Violations (GFV) when trading with unsettled funds:
 
-```yaml
-# Secondary safety check: enforce a hard limit of 1 trade per day
-enforce_one_trade_per_day: true
+**The Problem:**
+- Cash from stock sales settles T+1 (next business day)
+- Buying with unsettled sale proceeds is allowed (limited margin)
+- Selling a position bought with unsettled funds = Good Faith Violation
+- GFVs can result in trading restrictions on your account
+
+**The Solution:**
+- Track SELL operations only (not buys)
+- Limit to 1 sell per day (allows one complete swap: SELL → BUY)
+- Counter persists to file (`live_trading/state/sell_counter.txt`)
+- Survives app crashes and restarts
+- Automatically resets on new trading day
+
+**How it works:**
+```
+Day 1, 9:30 AM:  Have settled cash → BUY Stock A (settled position)
+Day 1, 10:00 AM: Trigger fires → SELL Stock A (generates unsettled cash)
+Day 1, 10:01 AM: BUY Stock B with unsettled cash (allowed via limited margin)
+Day 1, 2:00 PM:  Trigger fires again → BLOCKED (sells_today = 1, limit reached)
+                  Selling Stock B would be GFV (bought with unsettled funds)
+Day 2, 9:30 AM:  Counter resets → Can sell Stock B (now a settled position)
 ```
 
-When `true` (default), this flag acts as an **additional check** on top of `trades_per_day_limit`. Both must allow the trade for it to execute. This is a failsafe against misconfiguration.
-
-**Why two settings?**
-- `trades_per_day_limit`: The primary configurable limit
-- `enforce_one_trade_per_day`: A secondary safety net that catches mistakes like setting `trades_per_day_limit: 100`
+Set `sells_per_day_limit: 0` to disable (not recommended for cash accounts).
 
 ### Slippage Model
 
@@ -570,7 +584,7 @@ The algorithm stores minimal state - everything can be recovered from:
 
 1. **Environment Toggle**: Controlled by `environment` in settings.yaml (default: "sim"). Production mode shows prominent warning.
 
-2. **enforce_one_trade_per_day**: Secondary safety setting in `settings.yaml` that prevents more than 1 swap per day when enabled. Acts as a failsafe alongside `trades_per_day_limit`.
+2. **Sells Per Day Limit**: Enforced via file-persisted counter to prevent Good Faith Violations. Blocks all sells (including cleanup) when limit reached.
 
 3. **Sequential Orders**: Sell always completes before buy starts.
 
@@ -581,10 +595,11 @@ The algorithm stores minimal state - everything can be recovered from:
 6. **Recoverable vs Fatal Errors**: 
    - Insufficient funds: Wait and retry
    - Order rejection: Halt (CRITICAL)
+   - Sell counter persistence failure: Halt (CRITICAL)
 
 7. **Swap Cutoff**: No new swaps after 3:50 PM ET.
 
-8. **Daily Trade Limit**: Enforced per configuration AND by hardcoded safety flag.
+8. **Write-Before-Execute**: Sell counter incremented and persisted BEFORE sell order placed.
 
 ---
 

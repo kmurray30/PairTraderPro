@@ -144,13 +144,13 @@ class StateData:
     Attributes:
         current_stock: Which stock we're holding (or NONE if in cash)
         pending_order_id: Order ID when in PENDING states
-        trades_today: Number of trades executed today
+        sells_today: Number of SELL operations executed today (for GFV prevention)
         last_trade_day: Date of the last trade (for daily reset detection)
         portfolio_value_at_trade_start: Value when current trade sequence began
     """
     current_stock: StockHeld = StockHeld.NONE
     pending_order_id: Optional[str] = None
-    trades_today: int = 0
+    sells_today: int = 0
     last_trade_day: Optional[str] = None
     portfolio_value_at_trade_start: float = 0.0
     
@@ -301,15 +301,32 @@ class StateMachine:
         """Set the pending order ID (or None to clear)."""
         self.data.pending_order_id = order_id
     
-    def increment_trades_today(self) -> int:
-        """Increment and return the trades today counter."""
-        self.data.trades_today += 1
-        return self.data.trades_today
+    def increment_sells_today(self) -> int:
+        """
+        Increment and return the sells today counter.
+        
+        Note: This is called by the sell counter manager after persisting to file.
+        The in-memory counter tracks the same value as the persisted file.
+        
+        Returns:
+            New sell counter value after increment
+        """
+        self.data.sells_today += 1
+        return self.data.sells_today
     
-    def reset_trades_today(self, new_day: str) -> None:
-        """Reset the daily trade counter for a new trading day."""
-        self.data.trades_today = 0
+    def reset_sells_today(self, new_day: str) -> None:
+        """Reset the daily sell counter for a new trading day."""
+        self.data.sells_today = 0
         self.data.last_trade_day = new_day
+    
+    def set_sells_today(self, count: int) -> None:
+        """
+        Set the sells today counter (used on startup to load from file).
+        
+        Args:
+            count: Sell count to set
+        """
+        self.data.sells_today = count
     
     def set_portfolio_value_at_trade_start(self, value: float) -> None:
         """Record portfolio value at the start of a trade sequence."""

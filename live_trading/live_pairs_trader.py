@@ -50,6 +50,7 @@ from .order_executor import OrderExecutor, OrderResult, OrderStatus
 from .performance_tracker import PerformanceTracker, SlippageTracker
 from .reconciliation import Reconciler, RecoveryAction
 from .observability import Observability
+from .sell_counter import SellCounterManager
 
 # Import centralized logger
 from .logger import logger, set_log_level_from_config
@@ -106,6 +107,7 @@ class LivePairsTrader:
         performance_tracker: Return calculation
         reconciler: Position verification
         observability: Metrics and logging
+        sell_counter_manager: Daily sell counter for GFV prevention
     """
     
     def __init__(self):
@@ -126,7 +128,7 @@ class LivePairsTrader:
         self.ticker_b = self.settings['ticker_b']
         self.trigger_percent = self.settings['trigger_percent']
         self.ma_window = self.settings['moving_average_window_minutes']
-        self.trades_per_day_limit = self.settings['trades_per_day_limit']
+        self.sells_per_day_limit = self.settings.get('sells_per_day_limit', 1)  # Default: 1
         self.poll_interval = self.settings['poll_interval_seconds']
         self.reconciliation_interval = self.settings['reconciliation_interval_seconds']
         self.swap_cutoff_minutes = self.settings['swap_cutoff_minutes_before_close']
@@ -134,7 +136,6 @@ class LivePairsTrader:
         self.retry_backoff = self.settings['retry_backoff_seconds']
         self.performance_timeframes = self.settings['performance_timeframes']
         self.slippage_settings = self.settings.get('slippage', {})
-        self.enforce_one_trade_per_day = self.settings.get('enforce_one_trade_per_day', True)
         self.allocated_cash = self.settings.get('allocated_cash', 0)
         self.enable_24h_trading = self.settings.get('enable_24h_trading', False)
         
@@ -151,10 +152,9 @@ class LivePairsTrader:
         logger.info(f"  Ticker B: {self.ticker_b}")
         logger.info(f"  Trigger: {self.trigger_percent}%")
         logger.info(f"  MA Window: {self.ma_window} minutes")
-        logger.info(f"  Daily Trade Limit: {self.trades_per_day_limit}")
+        logger.info(f"  Daily Sell Limit: {self.sells_per_day_limit} (GFV prevention)")
         logger.info(f"  Swap Cutoff: {self.swap_cutoff_minutes} minutes before close")
         logger.info(f"  24h Trading: {self.enable_24h_trading}")
-        logger.info(f"  Enforce 1 Trade/Day: {self.enforce_one_trade_per_day}")
         if self.allocated_cash > 0:
             logger.info(f"  Allocated Cash: ${self.allocated_cash:,.2f}")
         else:
@@ -198,12 +198,22 @@ class LivePairsTrader:
             trigger_percent=self.trigger_percent
         )
         
+        # Initialize sell counter manager
+        self.sell_counter_manager = SellCounterManager()
+        sells_today = self.sell_counter_manager.load_counter()
+        logger.info(f"  Sells Today: {sells_today}/{self.sells_per_day_limit}")
+        
+        # Set the counter in state machine to stay in sync
+        self.state_machine.set_sells_today(sells_today)
+        
         # Initialize order executor
         self.order_executor = OrderExecutor(
             api=self.api,
             account_id=self.account_id,
             logger=self.observability.logger,
-            allocated_cash=self.allocated_cash
+            allocated_cash=self.allocated_cash,
+            sell_counter_manager=self.sell_counter_manager,
+            sells_per_day_limit=self.sells_per_day_limit
         )
         
         # Initialize performance tracker
@@ -321,8 +331,9 @@ class LivePairsTrader:
             self._current_trading_day = today
             
             if old_day is not None:
-                # Reset daily trade counter
-                self.state_machine.reset_trades_today(today)
+                # Reset daily sell counter
+                self.state_machine.reset_sells_today(today)
+                self.sell_counter_manager.reset_counter()
                 self.observability.logger.log_daily_reset(today, self.state_machine.state_name)
                 
                 # Transition out of HOLDING_DAILY_LIMIT if applicable
@@ -525,11 +536,8 @@ class LivePairsTrader:
                 relative_perf_all_time=metrics.get('relative_perf_all_time', 1.0)
             )
             
-            # Count this trade toward daily limit
-            self.state_machine.increment_trades_today()
-            self.observability.metrics.record_trades_today(
-                self.state_machine.data.trades_today
-            )
+            # NOTE: Sell counter is NOT incremented here because initial buy has no sell
+            # The counter only tracks SELL operations to prevent Good Faith Violations
             
             return True
         
@@ -710,15 +718,16 @@ class LivePairsTrader:
             # Print performance table
             logger.info("\n" + self.performance_tracker.format_metrics_table(metrics))
             
-            # Count trade toward daily limit
-            self.state_machine.increment_trades_today()
+            # NOTE: Sell counter was already incremented in OrderExecutor before sell
+            # Sync state machine counter with sell counter manager
+            self.state_machine.set_sells_today(self.sell_counter_manager.get_counter())
             self.observability.metrics.record_trades_today(
-                self.state_machine.data.trades_today
+                self.state_machine.data.sells_today
             )
             
-            # Record flip count (same as trades_today for swaps)
+            # Record flip count (same as sells_today for swaps)
             self.observability.metrics.record_flips_today(
-                self.state_machine.data.trades_today
+                self.state_machine.data.sells_today
             )
             
             return True
@@ -1076,44 +1085,27 @@ class LivePairsTrader:
                     
                     should_swap, direction = self.price_tracker.should_swap(snapshot, stock_name)
                     
-                    # Check conditions for swap
-                    trades_today = self.state_machine.data.trades_today
-                    
-                    # Check #1: Configurable daily limit from settings.yaml
-                    config_allows_trade = trades_today < self.trades_per_day_limit or self.trades_per_day_limit == 0
-                    
-                    # Check #2: Secondary safety check from settings
-                    # This is a failsafe to prevent runaway trading
-                    safety_allows_trade = not self.enforce_one_trade_per_day or trades_today < 1
-
-                    if config_allows_trade and not safety_allows_trade:
-                        self.state_machine.force_error_state(
-                            f"Safety violation: Primary limit allowed trade but safety blocked it. "
-                            f"trades_per_day_limit={self.trades_per_day_limit} is too high! "
-                            f"trades_today={trades_today}"
-                        )
-                        return
-                    
-                    # Both checks must pass
-                    can_trade = config_allows_trade and safety_allows_trade
+                    # Check if we can execute a swap (sell limit check)
+                    sells_today = self.state_machine.data.sells_today
+                    can_sell = sells_today < self.sells_per_day_limit
                     
                     # Print what we're evaluating
                     if should_swap:
-                        if can_trade and not past_cutoff:
+                        if can_sell and not past_cutoff:
                             logger.info(f"Trigger conditions met: Executing swap {direction}")
-                        elif not can_trade:
-                            logger.verbose(f"Trigger met but daily limit reached ({trades_today} trades)")
+                        elif not can_sell:
+                            logger.verbose(f"Trigger met but daily sell limit reached ({sells_today}/{self.sells_per_day_limit} sells)")
                         elif past_cutoff:
                             logger.verbose(f"Trigger met but past swap cutoff")
                     else:
                         logger.verbose(f"Holding {stock_name}, waiting for trigger")
                     
-                    if should_swap and can_trade and not past_cutoff:
+                    if should_swap and can_sell and not past_cutoff:
                         self._execute_swap(snapshot, direction)
-                    elif not can_trade and current_state != TradingState.HOLDING_DAILY_LIMIT:
+                    elif not can_sell and current_state != TradingState.HOLDING_DAILY_LIMIT:
                         self.state_machine.transition_to(
                             TradingState.HOLDING_DAILY_LIMIT,
-                            reason=f"Daily limit reached ({trades_today} trades)"
+                            reason=f"Daily sell limit reached ({sells_today}/{self.sells_per_day_limit} sells)"
                         )
                 
                 elif current_state == TradingState.HOLDING_DAILY_LIMIT:
@@ -1205,7 +1197,7 @@ class LivePairsTrader:
                         trigger_percent=self.trigger_percent,
                         trigger_proximity=trigger_proximity,
                         portfolio_value=portfolio_value,
-                        trades_today=self.state_machine.data.trades_today,
+                        trades_today=self.state_machine.data.sells_today,
                         minutes_until_close=minutes_until_close
                     )
                 

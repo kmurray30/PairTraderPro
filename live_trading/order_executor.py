@@ -151,7 +151,9 @@ class OrderExecutor:
         logger=None,  # TradingLogger instance
         poll_interval: float = 0.5,
         max_poll_attempts: int = 120,  # 60 seconds max wait
-        allocated_cash: float = 0
+        allocated_cash: float = 0,
+        sell_counter_manager=None,  # SellCounterManager instance
+        sells_per_day_limit: int = 1
     ):
         """
         Initialize the order executor.
@@ -163,6 +165,8 @@ class OrderExecutor:
             poll_interval: Seconds between order status polls
             max_poll_attempts: Max polls before timeout
             allocated_cash: Maximum cash to use for trading (0 = use full account)
+            sell_counter_manager: SellCounterManager for tracking daily sells (optional)
+            sells_per_day_limit: Maximum sells allowed per day (default: 1)
         """
         self.api = api
         self.account_id = account_id
@@ -170,6 +174,8 @@ class OrderExecutor:
         self.poll_interval = poll_interval
         self.max_poll_attempts = max_poll_attempts
         self.allocated_cash = allocated_cash
+        self.sell_counter_manager = sell_counter_manager
+        self.sells_per_day_limit = sells_per_day_limit
     
     def _is_market_open(self) -> bool:
         """
@@ -518,10 +524,12 @@ class OrderExecutor:
         Place an order and wait for it to fill.
         
         This is the main method for executing a single order. It:
-            1. Places the market order
-            2. Logs the order placement
-            3. Polls until filled or failed
-            4. Returns the result with slippage info
+            1. Check sell counter (if action is SELL)
+            2. Increment and persist counter (if action is SELL)
+            3. Places the market order
+            4. Logs the order placement
+            5. Polls until filled or failed
+            6. Returns the result with slippage info
         
         Args:
             symbol: Stock symbol
@@ -532,7 +540,51 @@ class OrderExecutor:
         
         Returns:
             OrderResult with complete fill information
+            Returns rejected OrderResult if sell not allowed
         """
+        # Check sell counter for SELL orders (prevents Good Faith Violations)
+        if action == "SELL" and self.sell_counter_manager:
+            if not self.sell_counter_manager.can_sell(self.sells_per_day_limit):
+                logger.critical(
+                    f"🚨 SELL BLOCKED: Daily sell limit reached "
+                    f"({self.sell_counter_manager.get_counter()}/{self.sells_per_day_limit})"
+                )
+                logger.critical(
+                    "Sell order aborted to prevent Good Faith Violation"
+                )
+                return OrderResult(
+                    order_id="",
+                    symbol=symbol,
+                    action=action,
+                    quantity=quantity,
+                    expected_price=expected_price,
+                    actual_price=0.0,
+                    status=OrderStatus.REJECTED,
+                    filled_quantity=0,
+                    timestamp=datetime.now(),
+                    error_message="Daily sell limit reached - blocked to prevent GFV"
+                )
+            
+            # Increment and persist counter BEFORE executing sell
+            try:
+                new_count = self.sell_counter_manager.increment_and_persist()
+                logger.info(f"✓ Sell counter incremented and persisted: {new_count}")
+            except RuntimeError as error:
+                logger.critical(f"Sell counter persistence FAILED: {error}")
+                logger.critical("ABORTING SELL - order will NOT be placed")
+                return OrderResult(
+                    order_id="",
+                    symbol=symbol,
+                    action=action,
+                    quantity=quantity,
+                    expected_price=expected_price,
+                    actual_price=0.0,
+                    status=OrderStatus.REJECTED,
+                    filled_quantity=0,
+                    timestamp=datetime.now(),
+                    error_message=f"Sell counter persistence failed: {error}"
+                )
+        
         # Log order placement
         if self.logger:
             self.logger.log_order_placed(
@@ -604,14 +656,18 @@ class OrderExecutor:
         Execute a complete swap: sell one stock, buy another.
         
         This method executes the two-leg swap sequence:
-            1. SELL all shares of current stock
-            2. Wait for sell to fill completely
-            3. Get updated buying power
-            4. Calculate shares to buy
-            5. BUY as many shares as possible of new stock
-            6. Wait for buy to fill completely
+            1. Check sell counter - ABORT if at limit
+            2. Increment and persist sell counter
+            3. SELL all shares of current stock
+            4. Wait for sell to fill completely
+            5. Get updated buying power
+            6. Calculate shares to buy
+            7. BUY as many shares as possible of new stock
+            8. Wait for buy to fill completely
         
         The sell MUST complete before the buy is initiated.
+        The sell counter is incremented and persisted BEFORE the sell executes
+        to prevent Good Faith Violations in case of app crash.
         
         Args:
             sell_symbol: Symbol to sell
@@ -623,11 +679,34 @@ class OrderExecutor:
         
         Returns:
             Tuple of (sell_result, buy_result)
+            Returns (None, None) if sell not allowed (limit reached)
             buy_result is None if sell failed
         """
         logger.info(f"🔄 Executing swap: SELL {sell_quantity} {sell_symbol} -> BUY {buy_symbol}")
         
-        # Step 1: Execute SELL order
+        # Step 1: Check if sell is allowed (under daily limit)
+        if self.sell_counter_manager:
+            if not self.sell_counter_manager.can_sell(self.sells_per_day_limit):
+                logger.critical(
+                    f"🚨 SELL BLOCKED: Daily sell limit reached "
+                    f"({self.sell_counter_manager.get_counter()}/{self.sells_per_day_limit})"
+                )
+                logger.critical(
+                    "Attempting to sell would risk Good Faith Violation. "
+                    "Swap aborted - no orders placed."
+                )
+                return None, None
+            
+            # Step 2: Increment and persist counter BEFORE executing sell
+            try:
+                new_count = self.sell_counter_manager.increment_and_persist()
+                logger.info(f"✓ Sell counter incremented and persisted: {new_count}")
+            except RuntimeError as error:
+                logger.critical(f"Sell counter persistence FAILED: {error}")
+                logger.critical("ABORTING SWAP - sell order will NOT be placed")
+                return None, None
+        
+        # Step 3: Execute SELL order
         sell_result = self.place_and_wait_for_fill(
             symbol=sell_symbol,
             action="SELL",

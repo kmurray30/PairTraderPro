@@ -49,16 +49,18 @@ trigger_percent: 0.1
 # 240 minutes = 4 hours of trading data
 moving_average_window_minutes: 240
 
-# Maximum number of trades (swaps) allowed per trading day
-# Set to 0 for unlimited trades
-# Note: The initial buy counts toward this limit
-trades_per_day_limit: 10
-
-# Secondary safety check: enforce a hard limit of 1 trade per day
-# When true, this acts as an additional check on top of trades_per_day_limit
-# Both checks must pass for a trade to execute
-# This is a safety net against configuration errors
-enforce_one_trade_per_day: true
+# Maximum number of SELL operations allowed per trading day
+# This prevents Good Faith Violations (GFV) when trading with unsettled funds
+# 
+# How it works:
+#   - Cash from sales settles T+1 (next business day)
+#   - Buying with unsettled funds is allowed (limited margin)
+#   - Selling a position bought with unsettled funds = GFV
+#   - Solution: Limit sells to 1 per day (allows one full swap cycle)
+#
+# Set to 0 for unlimited sells (not recommended for cash accounts)
+# Default: 1 (safe for cash accounts with limited margin)
+sells_per_day_limit: 1
 
 # -----------------------------------------------------------------------------
 # Performance Tracking Timeframes
