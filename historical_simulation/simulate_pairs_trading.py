@@ -1,8 +1,17 @@
+# CLI Usage:
+# python simulate_pairs_trading.py <TICKER1> <TICKER2>
+#
+# Example:
+# python simulate_pairs_trading.py AMD TSM
+# python simulate_pairs_trading.py V MA
+#
+# The script will automatically look for the matching historical data file
+# in the histories/ directory (e.g., AMD_TSM_clean_*.csv)
 
 ### Constants
 
 # Trading parameters
-trigger_percent = 0.4 # The difference that triggers a buy or sell (need to convert from percentage)
+trigger_percent = 0.1 # The difference that triggers a buy or sell (need to convert from percentage)
 trigger = trigger_percent / 100
 trades_per_day_limit = 1
 moving_average_window = 240 # In minutes
@@ -57,7 +66,7 @@ if len(tickers) != 2:
     raise Exception("Must provide exactly 2 tickers. e.g. `python simulate_pairs_trading.py AMD TSM`")
 
 # File paths
-matching_files = Utilities.find_files_by_pattern(Utilities.get_path_from_project_root("simulate/histories"), f"{tickers[0]}_{tickers[1]}*.csv")
+matching_files = Utilities.find_files_by_pattern(Utilities.get_path_from_project_root("historical_simulation/histories"), f"{tickers[0]}_{tickers[1]}*.csv")
 if len(matching_files) != 1:
     raise Exception(f"Found {len(matching_files)} files matching {tickers[0]}_{tickers[1]}*.csv. Expected 1.")
 combined_file_path = matching_files[0]

@@ -60,7 +60,7 @@ moving_average_window_minutes: 240
 #
 # Set to 0 for unlimited sells (not recommended for cash accounts)
 # Default: 1 (safe for cash accounts with limited margin)
-sells_per_day_limit: 1
+sells_per_day_limit: 10
 
 # -----------------------------------------------------------------------------
 # Performance Tracking Timeframes
@@ -152,7 +152,7 @@ enable_24h_trading: false # LEAVE FALSE - after hours trading is untested and re
 #          V at $300 → buy 3 shares ($900)
 #          MA at $500 → buy 2 shares ($1000)
 
-allocated_cash: 1000
+allocated_cash: 10000
 
 # -----------------------------------------------------------------------------
 # Terminal Logging Verbosity

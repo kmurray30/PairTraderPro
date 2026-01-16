@@ -431,6 +431,30 @@ class LivePairsTrader:
                 self.state_machine.set_pending_order(order.order_id)
                 logger.info(f"  Pending order: {order.order_id} ({order.action} {order.symbol})")
         
+        elif result.recommended_state == TradingState.CLEANUP_CASH:
+            self.state_machine.transition_to(
+                TradingState.CLEANUP_CASH,
+                reason="Recovery: no position, needs initial buy"
+            )
+            self.state_machine.set_current_stock(StockHeld.NONE)
+        
+        elif result.recommended_state == TradingState.CLEANUP_MIXED:
+            self.state_machine.transition_to(
+                TradingState.CLEANUP_MIXED,
+                reason=f"Recovery: partial position ({result.current_stock.value})"
+            )
+            self.state_machine.set_current_stock(result.current_stock)
+            stock_name = "ticker_a" if result.current_stock == StockHeld.TICKER_A else "ticker_b"
+            self._shares_held = self.reconciler.get_position_quantity(stock_name)
+            logger.info(f"  Shares held: {self._shares_held}")
+        
+        elif result.recommended_state == TradingState.CLEANUP_CONFLICT:
+            self.state_machine.transition_to(
+                TradingState.CLEANUP_CONFLICT,
+                reason="Recovery: conflict - both stocks held"
+            )
+            self.state_machine.set_current_stock(StockHeld.NONE)
+        
         # Initialize performance tracking period
         portfolio_value = self.reconciler.get_portfolio_value()
         snapshot = self.price_tracker.get_price_snapshot()
@@ -986,11 +1010,8 @@ class LivePairsTrader:
                     # Holding MA (ticker_b), waiting for negative deviation to swap to V
                     trigger_dev = f"under -{self.trigger_percent}%"
                 else:
-                    # In cash - show based on which stock we'll buy
-                    if snapshot.deviation_percent > 0:
-                        trigger_dev = f"under -{self.trigger_percent}%"
-                    else:
-                        trigger_dev = f"over +{self.trigger_percent}%"
+                    # In cash - can trigger in either direction
+                    trigger_dev = f"±{self.trigger_percent}%"
                 
                 # Print poll cycle summary in verbose
                 logger.verbose(

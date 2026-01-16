@@ -617,11 +617,8 @@ class TradingLogger:
             # Holding ticker_b, waiting for negative deviation
             trigger_dev = f"under -{trigger_percent}%"
         else:
-            # In cash - show based on which stock we'll buy
-            if deviation_pct > 0:
-                trigger_dev = f"under -{trigger_percent}%"
-            else:
-                trigger_dev = f"over +{trigger_percent}%"
+            # In cash - can trigger in either direction
+            trigger_dev = f"±{trigger_percent}%"
         
         self.info(
             f"HEARTBEAT: state={state}, position={position_str}, "
