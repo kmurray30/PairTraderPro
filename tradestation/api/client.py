@@ -161,6 +161,62 @@ class TradeStationClient:
             # This is normal - return None instead of raising an error
             return None
     
+    def _make_request_with_retry(
+        self,
+        method_func,
+        url: str,
+        max_retries: int = 1,
+        **kwargs
+    ) -> Any:
+        """
+        Make HTTP request with automatic 401 token refresh retry.
+        
+        This wrapper handles the common case where a cached access token
+        has expired (20 minute lifetime). On 401 error, it:
+        1. Clears the stale token cache
+        2. Retries the request once (gets fresh token automatically)
+        3. If still 401, propagates the error (likely bad credentials)
+        
+        Args:
+            method_func: requests function (requests.get, requests.post, etc.)
+            url: Full URL to request
+            max_retries: Number of retries on 401 (default 1)
+            **kwargs: Additional arguments to pass to requests method
+        
+        Returns:
+            Parsed JSON response
+        
+        Raises:
+            Exception: If request fails after retry or for non-401 errors
+        """
+        for attempt in range(max_retries + 1):
+            try:
+                # Make the request
+                response = method_func(url, **kwargs)
+                # Parse and return if successful
+                return self._handle_response(response)
+            
+            except Exception as error:
+                error_str = str(error)
+                
+                # Check if it's a 401 Unauthorized error
+                is_401 = "401" in error_str or "Unauthorized" in error_str
+                
+                # Retry only on 401 and if we have retries left
+                if is_401 and attempt < max_retries:
+                    # Clear stale token cache
+                    self.auth.clear_token_cache()
+                    
+                    # Update headers with fresh token for retry
+                    # get_access_token() will fetch a new one since cache is cleared
+                    kwargs['headers'] = self._get_auth_headers()
+                    
+                    # Loop will retry
+                    continue
+                else:
+                    # Not a 401, or out of retries - propagate error
+                    raise
+    
     def get(
         self,
         endpoint: str,
@@ -204,12 +260,13 @@ class TradeStationClient:
         # Get authorization headers with a valid access token
         headers = self._get_auth_headers()
         
-        # Make the GET request
-        # params are automatically URL-encoded by requests library
-        response = requests.get(url, headers=headers, params=params)
-        
-        # Parse and return the response (or raise exception if error)
-        return self._handle_response(response)
+        # Make the GET request with automatic 401 retry
+        return self._make_request_with_retry(
+            requests.get,
+            url,
+            headers=headers,
+            params=params
+        )
     
     def post(
         self,
@@ -260,24 +317,26 @@ class TradeStationClient:
         # Get authorization headers with a valid access token
         headers = self._get_auth_headers()
         
-        # Determine request format and make the request
+        # Determine request format and make the request with automatic 401 retry
         if json_data is not None:
             # JSON request - most common for TradeStation API
             # Set Content-Type header to application/json
             headers["Content-Type"] = "application/json"
             
-            # requests.post with json= parameter automatically:
-            # 1. Serializes the dict to JSON
-            # 2. Sets Content-Type to application/json
-            # 3. Sends as request body
-            response = requests.post(url, headers=headers, json=json_data)
+            return self._make_request_with_retry(
+                requests.post,
+                url,
+                headers=headers,
+                json=json_data
+            )
         else:
             # Form data request (less common with TradeStation)
-            # Content-Type will be application/x-www-form-urlencoded
-            response = requests.post(url, headers=headers, data=data)
-        
-        # Parse and return the response (or raise exception if error)
-        return self._handle_response(response)
+            return self._make_request_with_retry(
+                requests.post,
+                url,
+                headers=headers,
+                data=data
+            )
     
     def delete(
         self,
@@ -314,12 +373,13 @@ class TradeStationClient:
         # Get authorization headers with a valid access token
         headers = self._get_auth_headers()
         
-        # Make the DELETE request
-        response = requests.delete(url, headers=headers, params=params)
-        
-        # Parse and return the response (or raise exception if error)
-        # DELETE often returns an empty body, which will be None
-        return self._handle_response(response)
+        # Make the DELETE request with automatic 401 retry
+        return self._make_request_with_retry(
+            requests.delete,
+            url,
+            headers=headers,
+            params=params
+        )
     
     def stream(
         self,
