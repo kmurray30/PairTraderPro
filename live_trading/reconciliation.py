@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .state_machine import TradingState, StockHeld, StateData
+from .order_executor import OrderStatus
 
 # Import centralized logger
 from .logger import logger
@@ -225,17 +226,20 @@ class Reconciler:
             
             pending_orders = []
             for order_data in response.get('Orders', []):
-                status = order_data.get('Status', '')
+                status_str = order_data.get('Status', '')
+                
+                # Convert to enum (logs unknown statuses to Geneva)
+                status_enum = OrderStatus.from_api_string(status_str)
                 
                 # Only include orders that are still pending
-                if status in ['Received', 'Sent', 'PartiallyFilled']:
+                if OrderStatus.is_pending(status_enum):
                     order = PendingOrder(
                         order_id=order_data.get('OrderID', ''),
                         symbol=order_data.get('Symbol', ''),
                         action=order_data.get('TradeAction', ''),
                         quantity=int(order_data.get('Quantity', 0)),
                         filled_quantity=int(order_data.get('FilledQuantity', 0)),
-                        status=status
+                        status=status_str  # Store raw string for debugging
                     )
                     pending_orders.append(order)
             

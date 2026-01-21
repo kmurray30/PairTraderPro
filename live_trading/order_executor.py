@@ -20,12 +20,21 @@ Order Flow for Swaps:
 
 Order Status Values (from TradeStation API):
     TradeStation uses 3-letter status codes in the 'Status' field:
+    
+    Pending/Open:
     - ACK (Received): Order accepted by TradeStation
     - OPN (Sent): Order sent to exchange
+    - FPR (Partial Fill Alive): Order partially filled, still active
+    - FLP (Partial Fill UROut): Order partially filled, out of system
+    
+    Terminal - Filled:
     - FLL (Filled): Order completely filled
-    - FLP (PartiallyFilled): Order partially filled (wait for full fill)
+    
+    Terminal - Canceled/Rejected:
     - REJ (Rejected): Order rejected (CRITICAL - halt app)
     - CAN (Canceled): Order canceled
+    - EXP (Expired): Order expired (time-based cancellation)
+    - OUT (UROut): Order removed from system
 """
 
 import time
@@ -52,21 +61,84 @@ class OrderStatus(Enum):
     TradeStation uses 3-letter status codes:
         ACK = Acknowledged/Received
         OPN = Open/Sent to exchange
+        FPR = Partial Fill Alive (still active)
+        FLP = Partial Fill UROut (out of system)
         FLL = Filled
-        FLP = Partially Filled
         REJ = Rejected
         CAN = Canceled
+        EXP = Expired
+        OUT = UROut (removed from system)
         
     The StatusDescription field contains the human-readable version,
     but the Status field (which we use) contains these codes.
     """
-    RECEIVED = "ACK"     # Acknowledged/Received
-    SENT = "OPN"         # Open/Sent to exchange
-    FILLED = "FLL"       # Filled
-    PARTIALLY_FILLED = "FLP"  # Partially Filled
-    REJECTED = "REJ"     # Rejected
-    CANCELED = "CAN"     # Canceled
+    # Pending/Open statuses
+    RECEIVED = "ACK"                  # Acknowledged/Received
+    SENT = "OPN"                      # Open/Sent to exchange
+    PARTIALLY_FILLED_ALIVE = "FPR"    # Partial fill, still active
+    PARTIALLY_FILLED_OUT = "FLP"      # Partial fill, out of system
+    
+    # Terminal - Filled
+    FILLED = "FLL"                    # Filled
+    
+    # Terminal - Canceled/Rejected
+    REJECTED = "REJ"                  # Rejected
+    CANCELED = "CAN"                  # Canceled
+    EXPIRED = "EXP"                   # Expired (time-based cancellation)
+    OUT = "OUT"                       # UROut - removed from system
+    
+    # Catch-all
     UNKNOWN = "Unknown"
+    
+    @classmethod
+    def is_pending(cls, status: 'OrderStatus') -> bool:
+        """Check if status indicates order is still pending."""
+        return status in {
+            cls.RECEIVED,
+            cls.SENT,
+            cls.PARTIALLY_FILLED_ALIVE,
+            cls.PARTIALLY_FILLED_OUT
+        }
+    
+    @classmethod
+    def is_terminal(cls, status: 'OrderStatus') -> bool:
+        """Check if status is terminal (filled, rejected, canceled)."""
+        return status in {
+            cls.FILLED,
+            cls.REJECTED,
+            cls.CANCELED,
+            cls.EXPIRED,
+            cls.OUT
+        }
+    
+    @classmethod
+    def from_api_string(cls, status_str: str) -> 'OrderStatus':
+        """
+        Convert API status string to enum, logging unknown values.
+        
+        This is the ONLY place status strings should be matched.
+        Logs unknown statuses to Geneva/Loki for monitoring.
+        
+        Args:
+            status_str: Status string from TradeStation API
+            
+        Returns:
+            OrderStatus enum value (UNKNOWN if not recognized)
+        """
+        try:
+            return cls(status_str)
+        except ValueError:
+            # Unknown status - log to Geneva with structured alert
+            logger.error(
+                f"⚠️  UNKNOWN_ORDER_STATUS: Received status '{status_str}' not in enum. "
+                f"This may indicate a new TradeStation status or unsupported order type.",
+                extra={
+                    "alert_type": "UNKNOWN_ORDER_STATUS",
+                    "status_code": status_str,
+                    "known_statuses": [s.value for s in cls if s != cls.UNKNOWN]
+                }
+            )
+            return cls.UNKNOWN
 
 
 @dataclass
@@ -327,12 +399,8 @@ class OrderExecutor:
             
             status_str = response.get('Status', 'Unknown')
             
-            # Map string to enum
-            try:
-                status = OrderStatus(status_str)
-            except ValueError:
-                logger.warning(f"Unknown order status '{status_str}' for order {order_id}")
-                status = OrderStatus.UNKNOWN
+            # Convert to enum (logs unknown statuses to Geneva)
+            status = OrderStatus.from_api_string(status_str)
             
             logger.verbose(f"Order {order_id} status: {status_str}")
             return status, response
@@ -453,10 +521,26 @@ class OrderExecutor:
                 )
                 return result
             
-            elif status in {OrderStatus.RECEIVED, OrderStatus.SENT, 
-                           OrderStatus.PARTIALLY_FILLED}:
+            elif status in {OrderStatus.EXPIRED, OrderStatus.OUT}:
+                # Order expired or removed from system (similar to canceled)
+                error_msg = f"Order {status.value}"
+                result = OrderResult(
+                    order_id=order_id,
+                    symbol=symbol,
+                    action=action,
+                    quantity=quantity,
+                    expected_price=expected_price,
+                    actual_price=0.0,
+                    status=status,
+                    filled_quantity=0,
+                    timestamp=datetime.now(),
+                    error_message=error_msg
+                )
+                return result
+            
+            elif OrderStatus.is_pending(status):
                 # Still pending - continue polling
-                if status == OrderStatus.PARTIALLY_FILLED:
+                if status in {OrderStatus.PARTIALLY_FILLED_ALIVE, OrderStatus.PARTIALLY_FILLED_OUT}:
                     filled_so_far = order_data.get('FilledQuantity', 0)
                     logger.verbose(f"Partial fill: {filled_so_far}/{quantity} shares")
                 
