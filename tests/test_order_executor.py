@@ -167,7 +167,7 @@ class MockTradeStationAPI:
                 'Symbol': symbol,
                 'Quantity': quantity,
                 'TradeAction': action,
-                'Status': 'Filled',
+                'Status': 'FLL',  # TradeStation uses 3-letter codes: FLL = Filled
                 'FilledQuantity': quantity,
                 'AveragePrice': price
             }

@@ -51,12 +51,12 @@ def mock_api():
     api.orders.place_order = Mock(return_value={
         'Orders': [{
             'OrderID': 'TEST123',
-            'Status': 'Received'
+            'Status': 'ACK'  # TradeStation uses 3-letter codes: ACK = Received
         }]
     })
     api.orders.get_order = Mock(return_value={
         'OrderID': 'TEST123',
-        'Status': 'Filled',
+        'Status': 'FLL',  # TradeStation uses 3-letter codes: FLL = Filled
         'FilledQuantity': 100,
         'AveragePrice': 280.50
     })

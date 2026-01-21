@@ -19,12 +19,13 @@ Order Flow for Swaps:
     9. Verify final position
 
 Order Status Values (from TradeStation API):
-    - Received: Order accepted by TradeStation
-    - Sent: Order sent to exchange
-    - Filled: Order completely filled
-    - PartiallyFilled: Order partially filled (wait for full fill)
-    - Rejected: Order rejected (CRITICAL - halt app)
-    - Canceled: Order canceled
+    TradeStation uses 3-letter status codes in the 'Status' field:
+    - ACK (Received): Order accepted by TradeStation
+    - OPN (Sent): Order sent to exchange
+    - FLL (Filled): Order completely filled
+    - FLP (PartiallyFilled): Order partially filled (wait for full fill)
+    - REJ (Rejected): Order rejected (CRITICAL - halt app)
+    - CAN (Canceled): Order canceled
 """
 
 import time
@@ -46,13 +47,25 @@ MARKET_CLOSE = dt_time(16, 0)
 
 
 class OrderStatus(Enum):
-    """Order status values from TradeStation API."""
-    RECEIVED = "Received"
-    SENT = "Sent"
-    FILLED = "Filled"
-    PARTIALLY_FILLED = "PartiallyFilled"
-    REJECTED = "Rejected"
-    CANCELED = "Canceled"
+    """Order status values from TradeStation API.
+    
+    TradeStation uses 3-letter status codes:
+        ACK = Acknowledged/Received
+        OPN = Open/Sent to exchange
+        FLL = Filled
+        FLP = Partially Filled
+        REJ = Rejected
+        CAN = Canceled
+        
+    The StatusDescription field contains the human-readable version,
+    but the Status field (which we use) contains these codes.
+    """
+    RECEIVED = "ACK"     # Acknowledged/Received
+    SENT = "OPN"         # Open/Sent to exchange
+    FILLED = "FLL"       # Filled
+    PARTIALLY_FILLED = "FLP"  # Partially Filled
+    REJECTED = "REJ"     # Rejected
+    CANCELED = "CAN"     # Canceled
     UNKNOWN = "Unknown"
 
 
