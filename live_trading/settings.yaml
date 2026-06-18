@@ -47,7 +47,7 @@ trigger_percent: 0.1
 # Moving average window in minutes
 # The algorithm calculates MA over this many 1-minute bars
 # 240 minutes = 4 hours of trading data
-moving_average_window_minutes: 240
+moving_average_window_minutes: 60
 
 # Maximum number of SELL operations allowed per trading day
 # This prevents Good Faith Violations (GFV) when trading with unsettled funds

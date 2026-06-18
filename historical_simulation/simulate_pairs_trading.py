@@ -129,16 +129,29 @@ def log_daily_performance(day: int, freq: int = 1, pad_end: bool = True):
     algo_perf_all_time = algo_growth_all_time / market_growth_all_time
     algo_perf_last_freq = algo_growth_last_freq / market_growth_last_freq
 
-    # Print a table of the values, with the columns: day, last {freq}d, all time; and rows: market, algo, performance
-    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
-    print(f"|{'Day ' + str(day):<10}|{'Last ' + str(freq) + 'd':<10}|{'All time':<10}|")
-    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
-    print(f"|{'Market':<10}|{str(round(market_growth_last_freq * 100, 1))+'%':<10}|{str(round(market_growth_all_time * 100, 1))+'%':<10}|")
-    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
-    print(f"|{'Algo':<10}|{str(round(algo_growth_last_freq * 100, 1))+'%':<10}|{str(round(algo_growth_all_time * 100, 1))+'%':<10}|")
-    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
-    print(f"|{'Perf':<10}|{str(round(algo_perf_last_freq * 100, 1))+'%':<10}|{str(round(algo_perf_all_time * 100, 1))+'%':<10}|")
-    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+")
+    years_elapsed = day / 365.25
+    if years_elapsed > 0:
+        market_yearly_avg = market_growth_all_time ** (1 / years_elapsed) - 1
+        algo_yearly_avg = algo_growth_all_time ** (1 / years_elapsed) - 1
+        perf_delta_yearly = algo_yearly_avg - market_yearly_avg
+    else:
+        market_yearly_avg = 0
+        algo_yearly_avg = 0
+        perf_delta_yearly = 0
+
+    def format_percent(value: float) -> str:
+        return f"{round(value * 100, 1)}%"
+
+    # Print a table of the values, with the columns: day, last {freq}d, all time, yearly avg; and rows: market, algo, performance
+    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+{'-'*12}+")
+    print(f"|{'Day ' + str(day):<10}|{'Last ' + str(freq) + 'd':<10}|{'All time':<10}|{'Yearly avg':<12}|")
+    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+{'-'*12}+")
+    print(f"|{'Market':<10}|{format_percent(market_growth_last_freq):<10}|{format_percent(market_growth_all_time):<10}|{format_percent(market_yearly_avg):<12}|")
+    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+{'-'*12}+")
+    print(f"|{'Algo':<10}|{format_percent(algo_growth_last_freq):<10}|{format_percent(algo_growth_all_time):<10}|{format_percent(algo_yearly_avg):<12}|")
+    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+{'-'*12}+")
+    print(f"|{'Perf':<10}|{format_percent(algo_perf_last_freq):<10}|{format_percent(algo_perf_all_time):<10}|{format_percent(perf_delta_yearly):<12}|")
+    print(f"+{'-'*10}+{'-'*10}+{'-'*10}+{'-'*12}+")
     if pad_end:
         print("\n\n\n")
 
@@ -209,6 +222,9 @@ stocks_df = pd.read_csv(combined_file_path)
 # Create a new column that captures the ratio between the two stocks
 stocks_df['ratio'] = stocks_df[visa_price_col_name_t0] / stocks_df[mastercard_price_col_name_t0]
 
+sample_data_start_date = stocks_df['timestamp'].iloc[moving_average_window].split(" ")[0]
+sample_data_end_date = stocks_df['timestamp'].iloc[-1 - trade_delay].split(" ")[0]
+
 ### Main
 
 # Go through each row, comparing the timestamps (in format "YYYY-MM-DD HH:MM:SS"). If they don't match, print the row, then move on to the next row in whichever dataframe has the earlier timestamp
@@ -219,6 +235,8 @@ previous_day = stocks_df['timestamp'][moving_average_window].split(" ")[0]
 trade_limit_reached_counter = 0
 days_passed = 0
 days_processed = 0
+simulation_start_date = None
+simulation_end_date = None
 init_run = True # Is this the first processed run of the algorithm?
 print("Starting algorithm...\n")
 for i in range(moving_average_window, len(stocks_df) - trade_delay):
@@ -230,6 +248,7 @@ for i in range(moving_average_window, len(stocks_df) - trade_delay):
         days_passed += 1 # Add that the previous day has passed
         if days_passed > skip_start:
             days_processed += 1 # Add that the previous day was processed
+            simulation_end_date = current_day
             add_daily_performance(days_processed, visa_price, visa_shares, mastercard_price, mastercard_shares, cash)
         if trades_left_today == 0:
             print(f"Daily limit reset\n")
@@ -289,6 +308,8 @@ for i in range(moving_average_window, len(stocks_df) - trade_delay):
         mastercard_bought_price = mastercard_price
         init_visa_price = visa_price
         init_mastercard_price = mastercard_price
+        simulation_start_date = current_day
+        simulation_end_date = current_day
         add_daily_performance(days_processed, visa_price, visa_shares, mastercard_price, mastercard_shares, cash) # Add the first day's performance
         init_run = False
 
@@ -332,10 +353,13 @@ for i in range(moving_average_window, len(stocks_df) - trade_delay):
 days_passed += 1
 if init_run == False:
     days_processed += 1
+    simulation_end_date = current_day
     add_daily_performance(days_processed, visa_price, visa_shares, mastercard_price, mastercard_shares, cash)
     log_daily_performance(days_processed, eval_freq, False)
 
 print(f"Done simulating pairs trading! Triggered {trade_swap_count} total time out of {attempted_trade_swap_count} attempts.")
+print(f"Pair: {tickers[0]} / {tickers[1]}")
+print(f"Sample date range: {simulation_start_date or sample_data_start_date} to {simulation_end_date or sample_data_end_date}")
 print(f"Reached daily trade limit {trade_limit_reached_counter} times.")
 print(f"Total gains: {total_gains * 100 / initial_cash:.2f}%, total losses: {total_losses * 100 / initial_cash:.2f}%")
 print(f"Days passed: {days_passed}")

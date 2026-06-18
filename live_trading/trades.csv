@@ -1,1 +1,2 @@
 trade_id,timestamp,action,symbol,quantity,expected_price,actual_price,slippage_pct,portfolio_value_before,portfolio_value_after,period_return_pct,compound_return_all_time,algo_return_7d,algo_return_60d,relative_perf_7d,relative_perf_60d,relative_perf_all_time
+T20260121203402_0001,2026-01-21T20:34:02.412857+00:00,SWAP_MA_TO_V,V,30,326.0900,326.0900,0.0000,996990.01,996986.01,-0.0004,1.0000,1.0000,1.0000,0.9989,0.9989,0.9989
