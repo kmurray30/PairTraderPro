@@ -152,7 +152,7 @@ enable_24h_trading: false # LEAVE FALSE - after hours trading is untested and re
 #          V at $300 → buy 3 shares ($900)
 #          MA at $500 → buy 2 shares ($1000)
 
-allocated_cash: 10000
+allocated_cash: 1000
 
 # -----------------------------------------------------------------------------
 # Terminal Logging Verbosity
@@ -169,5 +169,5 @@ allocated_cash: 10000
 #
 # Note: VERBOSE (3) will print every second. Use INFO (2) for cleaner output.
 
-log_level: 3  # VERBOSE - everything including detailed diagnostics
+log_level: 2  # INFO - recommended for live trading; VERBOSE floods Railway/Loki with a line per second
 

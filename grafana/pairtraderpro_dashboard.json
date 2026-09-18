@@ -1,0 +1,360 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus (Grafana Cloud metrics)",
+      "description": "Datasource receiving OTLP metrics from PairTraderPro",
+      "type": "datasource",
+      "pluginId": "prometheus"
+    },
+    {
+      "name": "DS_LOKI",
+      "label": "Loki (Grafana Cloud logs)",
+      "description": "Datasource receiving OTLP logs from PairTraderPro",
+      "type": "datasource",
+      "pluginId": "loki"
+    }
+  ],
+  "title": "PairTraderPro - Live Trading",
+  "uid": "pairtraderpro-live",
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "America/New_York",
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["pairtraderpro", "trading"],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {}
+      },
+      {
+        "name": "DS_LOKI",
+        "type": "datasource",
+        "query": "loki",
+        "current": {}
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Flips",
+        "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+        "enable": true,
+        "iconColor": "orange",
+        "expr": "{service_name=\"PairTraderPro\"} |= \"FLIP_COMPLETE\"",
+        "titleFormat": "Flip"
+      },
+      {
+        "name": "Critical alerts",
+        "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+        "enable": true,
+        "iconColor": "red",
+        "expr": "{service_name=\"PairTraderPro\"} | detected_level = \"critical\"",
+        "titleFormat": "CRITICAL"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Portfolio",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Portfolio Value",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "custom": { "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "pairs_trader_portfolio_value",
+          "legendFormat": "Portfolio value",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+        },
+        {
+          "expr": "pairs_trader_cash_available",
+          "legendFormat": "Cash available",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Return Multipliers",
+      "description": "Compound return multiplier by timeframe (1.05 = +5%)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 4 },
+        "overrides": []
+      },
+      "options": { "orientation": "horizontal", "textMode": "value_and_name", "colorMode": "value" },
+      "targets": [
+        { "expr": "pairs_trader_return_multiplier_7d", "legendFormat": "7d", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } },
+        { "expr": "pairs_trader_return_multiplier_60d", "legendFormat": "60d", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } },
+        { "expr": "pairs_trader_return_multiplier_all_time", "legendFormat": "All-time", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Relative Performance vs Market",
+      "description": "Ratio of algo return to buy-and-hold market return by timeframe",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.98 },
+              { "color": "green", "value": 1.0 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "orientation": "horizontal", "textMode": "value_and_name", "colorMode": "value" },
+      "targets": [
+        { "expr": "pairs_trader_relative_perf_7d", "legendFormat": "7d", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } },
+        { "expr": "pairs_trader_relative_perf_60d", "legendFormat": "60d", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } },
+        { "expr": "pairs_trader_relative_perf_all_time", "legendFormat": "All-time", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Trading State",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+    },
+    {
+      "id": 6,
+      "type": "state-timeline",
+      "title": "Algorithm State",
+      "description": "0=WARMING_UP 1=CASH 2=PENDING_BUY 3=HOLDING_WAITING 4=HOLDING_TRIGGERED 5=PENDING_SELL 6=HOLDING_DAILY_LIMIT 7=ERROR",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "WARMING_UP", "color": "blue" },
+                "1": { "text": "CASH", "color": "text" },
+                "2": { "text": "PENDING_BUY", "color": "yellow" },
+                "3": { "text": "HOLDING_WAITING", "color": "green" },
+                "4": { "text": "HOLDING_TRIGGERED", "color": "orange" },
+                "5": { "text": "PENDING_SELL", "color": "yellow" },
+                "6": { "text": "HOLDING_DAILY_LIMIT", "color": "purple" },
+                "7": { "text": "ERROR", "color": "red" }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "pairs_trader_state", "legendFormat": "state", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "state-timeline",
+      "title": "Holding",
+      "description": "1=ticker_a -1=ticker_b 0=none (cash)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": { "text": "Ticker A", "color": "green" },
+                "0": { "text": "CASH", "color": "text" },
+                "-1": { "text": "Ticker B", "color": "blue" }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "pairs_trader_holding_indicator", "legendFormat": "holding", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Trades / Flips Today",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "targets": [
+        { "expr": "pairs_trader_trades_today", "legendFormat": "Trades today", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } },
+        { "expr": "pairs_trader_flips_today", "legendFormat": "Flips today", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Ratio & Trigger",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Price Ratio vs Moving Average & Trigger Bands",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 17 },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 5, "custom": { "fillOpacity": 0 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": "Upper|Lower" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        { "expr": "pairs_trader_ratio", "legendFormat": "Ratio", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } },
+        { "expr": "pairs_trader_ratio_ma", "legendFormat": "Moving Average", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } },
+        { "expr": "pairs_trader_trigger_upper", "legendFormat": "Upper", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } },
+        { "expr": "pairs_trader_trigger_lower", "legendFormat": "Lower", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "gauge",
+      "title": "Trigger Proximity",
+      "description": "1.0 = at trigger threshold, >1.0 = past it",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 17 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 1.5,
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "red", "value": 1.0 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "pairs_trader_trigger_proximity", "legendFormat": "proximity", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Prices, Slippage & Session",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Ticker Prices",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 7, "w": 10, "x": 0, "y": 26 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" }, "overrides": [] },
+      "targets": [
+        { "expr": "pairs_trader_price_ticker_a", "legendFormat": "Ticker A", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } },
+        { "expr": "pairs_trader_price_ticker_b", "legendFormat": "Ticker B", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Slippage: Expected vs Actual",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 7, "w": 8, "x": 10, "y": 26 },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "targets": [
+        { "expr": "rate(pairs_trader_slippage_expected_sum[5m]) / rate(pairs_trader_slippage_expected_count[5m])", "legendFormat": "Expected (5m avg)", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } },
+        { "expr": "rate(pairs_trader_slippage_actual_sum[5m]) / rate(pairs_trader_slippage_actual_count[5m])", "legendFormat": "Actual (5m avg)", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Minutes Until Close",
+      "description": "Negative when market is closed",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 26 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 380 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "pairs_trader_minutes_until_close", "legendFormat": "mins", "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" } }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "Logs",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 }
+    },
+    {
+      "id": 17,
+      "type": "logs",
+      "title": "Critical Alerts (freeze conditions)",
+      "description": "ORDER_REJECTED, POSITION_MISMATCH, API_FAILURE_EXHAUSTED, INVALID_STATE_TRANSITION, UNEXPECTED_POSITION - these freeze the algorithm",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 34 },
+      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "targets": [
+        { "expr": "{service_name=\"PairTraderPro\"} | detected_level = \"critical\"", "datasource": { "type": "loki", "uid": "${DS_LOKI}" } }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "logs",
+      "title": "All Logs",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 40 },
+      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "targets": [
+        { "expr": "{service_name=\"PairTraderPro\"}", "datasource": { "type": "loki", "uid": "${DS_LOKI}" } }
+      ]
+    }
+  ]
+}
