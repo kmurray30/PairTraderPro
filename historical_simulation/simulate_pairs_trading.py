@@ -11,10 +11,10 @@
 ### Constants
 
 # Trading parameters
-trigger_percent = 0.1 # The difference that triggers a buy or sell (need to convert from percentage)
+trigger_percent = 0.3 # The difference that triggers a buy or sell (need to convert from percentage)
 trigger = trigger_percent / 100
 trades_per_day_limit = 1
-moving_average_window = 240 # In minutes
+moving_average_window = 720 * 6 # In minutes
 trade_delay = 1 # In minutes
 eval_time = "close" # Use either "open", "close", or "mid" for the price
 trade_time = "close" # Use either "open", "close", or "mid" for the price
@@ -57,6 +57,7 @@ from enum import Enum
 import sys
 sys.path.insert(0, "..")
 import Utilities
+from ratio_chart import add_ratio_chart_columns, generate_ratio_chart
 
 # Capture command-line arguments
 args = sys.argv[1:]  # Exclude the script name
@@ -237,6 +238,7 @@ days_passed = 0
 days_processed = 0
 simulation_start_date = None
 simulation_end_date = None
+trade_events: list[dict] = []
 init_run = True # Is this the first processed run of the algorithm?
 print("Starting algorithm...\n")
 for i in range(moving_average_window, len(stocks_df) - trade_delay):
@@ -332,6 +334,12 @@ for i in range(moving_average_window, len(stocks_df) - trade_delay):
             # print(f"[Visa: {visa_shares}, Mastercard: {mastercard_shares}, Value: {total_value}]\n")
             trade_swap_count += 1
             trades_left_today -= 1
+            trade_events.append({
+                "timestamp": time,
+                "ratio": stocks_df['ratio'][i],
+                "threshold": ratio_moving_average * (1 + trigger),
+                "direction": f"{tickers[0]}->{tickers[1]}",
+            })
             if trades_per_day_limit != 0 and trades_left_today == 0:
                 trade_limit_reached_counter += 1
                 # print(f"Reached daily trade limit, skipping the rest of the day")
@@ -346,6 +354,12 @@ for i in range(moving_average_window, len(stocks_df) - trade_delay):
             # print(f"[Visa: {visa_shares}, Mastercard: {mastercard_shares}, Value: {total_value}]\n")
             trade_swap_count += 1
             trades_left_today -= 1
+            trade_events.append({
+                "timestamp": time,
+                "ratio": stocks_df['ratio'][i],
+                "threshold": ratio_moving_average * (1 - trigger),
+                "direction": f"{tickers[1]}->{tickers[0]}",
+            })
             if trades_per_day_limit != 0 and trades_left_today == 0:
                 trade_limit_reached_counter += 1
                 # print(f"Reached daily trade limit, skipping the rest of the day")
@@ -369,3 +383,26 @@ print(f"Drawdown peak day: {last_max_drawdown_peak_day}, trough day: {last_max_d
 print(f"Max drawdown peak value: {last_max_drawdown_peak_value}, trough value: {last_max_drawdown_trough_value}")
 print(f"Max drawdown peak price: Visa: {last_max_drawdown_peak_Visa_price}, Mastercard: {last_max_drawdown_peak_Mastercard_price}")
 print(f"Max drawdown trough price: Visa: {last_max_drawdown_trough_Visa_price}, Mastercard: {last_max_drawdown_trough_Mastercard_price}")
+
+chart_start_date = simulation_start_date or sample_data_start_date
+chart_end_date = simulation_end_date or sample_data_end_date
+stocks_df = add_ratio_chart_columns(stocks_df, moving_average_window, trigger)
+stocks_df['date'] = stocks_df['timestamp'].str.split(" ").str[0]
+chart_data = stocks_df[
+    (stocks_df['date'] >= chart_start_date)
+    & (stocks_df['date'] <= chart_end_date)
+    & stocks_df['ratio_ma'].notna()
+][['timestamp', 'ratio', 'ratio_ma', 'upper_threshold', 'lower_threshold']].copy()
+
+chart_output_path = Utilities.get_path_from_project_root(
+    f"historical_simulation/charts/{tickers[0]}_{tickers[1]}_ratio.html"
+)
+saved_chart_path = generate_ratio_chart(
+    chart_data=chart_data,
+    trade_events=trade_events,
+    tickers=tickers,
+    output_path=chart_output_path,
+    trigger_percent=trigger_percent,
+    date_range=(chart_start_date, chart_end_date),
+)
+print(f"Ratio chart saved to: {saved_chart_path}")

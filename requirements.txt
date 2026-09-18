@@ -1,6 +1,8 @@
 python-dotenv
 requests
 pyyaml
+pandas
+plotly
 
 # OpenTelemetry for Prometheus metrics and Loki logging
 opentelemetry-api
